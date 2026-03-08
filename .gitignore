@@ -13,6 +13,7 @@ venv/
 .env.*
 !.env.example
 !.env.sample
+config.toml
 
 # Test, lint, and type-check caches
 .pytest_cache/

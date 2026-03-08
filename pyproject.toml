@@ -1,0 +1,72 @@
+[build-system]
+requires = ['hatchling']
+build-backend = 'hatchling.build'
+
+[project]
+name = 'nasuchan'
+version = '0.1.0'
+description = 'Telegram bot frontend for the fav backend APIs.'
+readme = 'AGENTS.md'
+requires-python = '>=3.13,<3.14'
+dependencies = [
+    'aiogram>=3.15.0,<4',
+    'httpx>=0.28.1,<1',
+    'pydantic>=2.10.6,<3',
+]
+
+[dependency-groups]
+dev = [
+    'pytest>=8.3.5,<9',
+    'pytest-asyncio>=0.25.3,<1',
+    'ruff>=0.11.0,<0.12',
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ['src/nasuchan']
+
+[tool.pytest.ini_options]
+addopts = '-q'
+asyncio_mode = 'auto'
+pythonpath = ['src']
+testpaths = ['tests']
+
+[tool.ruff]
+line-length = 140
+target-version = 'py313'
+
+[tool.ruff.format]
+quote-style = 'single'
+
+[tool.ruff.lint]
+select = ['ALL']
+ignore = [
+    'ARG005',
+    'ANN401',
+    'C901',
+    'COM812',
+    'D100',
+    'D101',
+    'D102',
+    'D103',
+    'D104',
+    'D105',
+    'D106',
+    'D107',
+    'EM101',
+    'EM102',
+    'FBT001',
+    'FBT002',
+    'INP001',
+    'I001',
+    'PERF401',
+    'PLR0913',
+    'PLR2004',
+    'Q000',
+    'Q003',
+    'S101',
+    'S106',
+    'TC001',
+    'TC002',
+    'TC003',
+    'TRY003',
+]
