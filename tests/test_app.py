@@ -16,7 +16,7 @@ def build_config() -> AppConfig:
     return AppConfig.model_validate(
         {
             'telegram': {'bot_token': '123456:telegram-bot-token', 'admin_chat_id': 123456789},
-            'backend_api': {'base_url': 'https://fav.example.com', 'token': 'shared-token', 'request_timeout_seconds': 15},
+            'backend': {'fav': {'base_url': 'https://fav.example.com', 'token': 'shared-token', 'request_timeout_seconds': 15}},
             'polling': {
                 'control_poll_interval_seconds': 2,
                 'control_poll_timeout_seconds': 600,

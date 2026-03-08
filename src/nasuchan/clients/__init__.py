@@ -11,7 +11,15 @@ from .exceptions import (
     BackendApiUnexpectedResponseError,
     BackendApiUnprocessableError,
 )
-from .models import ControlRequest, Hanime1Seed, HealthStatus, JobSummary, NotificationRecord
+from .models import (
+    ControlRequest,
+    Hanime1DownloadedIdsPayload,
+    Hanime1DownloadedIdsResponse,
+    Hanime1Seed,
+    HealthStatus,
+    JobSummary,
+    NotificationRecord,
+)
 
 __all__ = [
     'BackendApiBadRequestError',
@@ -26,6 +34,8 @@ __all__ = [
     'BackendApiUnprocessableError',
     'ControlRequest',
     'FavBackendClient',
+    'Hanime1DownloadedIdsPayload',
+    'Hanime1DownloadedIdsResponse',
     'Hanime1Seed',
     'HealthStatus',
     'JobSummary',

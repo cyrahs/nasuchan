@@ -13,6 +13,7 @@ from .renderers import (
     format_seed_deleted_message,
     format_seed_page_message,
 )
+from .runtime_api import RuntimeApiService
 from .text import split_text_chunks
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     'NotificationDeliveryService',
     'NotificationHtmlContent',
     'NotificationWorker',
+    'RuntimeApiService',
     'build_backend_user_message',
     'build_help_text',
     'format_control_request_message',

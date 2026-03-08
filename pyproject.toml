@@ -9,6 +9,7 @@ description = 'Telegram bot frontend for the fav backend APIs.'
 readme = 'AGENTS.md'
 requires-python = '>=3.13,<3.14'
 dependencies = [
+    'aiohttp>=3.13.3,<4',
     'aiogram>=3.15.0,<4',
     'httpx>=0.28.1,<1',
     'pydantic>=2.10.6,<3',

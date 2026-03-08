@@ -65,12 +65,13 @@ def create_runtime(
     runtime_http_client = http_client
     runtime_backend_client = backend_client
     if runtime_backend_client is None:
+        fav_backend = config.backend.fav
         runtime_http_client = runtime_http_client or httpx.AsyncClient(
-            base_url=config.backend_api.base_url,
-            timeout=config.backend_api.request_timeout_seconds,
+            base_url=fav_backend.base_url,
+            timeout=fav_backend.request_timeout_seconds,
             follow_redirects=False,
         )
-        runtime_backend_client = FavBackendClient(config.backend_api, client=runtime_http_client)
+        runtime_backend_client = FavBackendClient(fav_backend, client=runtime_http_client)
 
     runtime_bot = bot or Bot(token=config.telegram.bot_token)
     dispatcher = Dispatcher(storage=MemoryStorage())

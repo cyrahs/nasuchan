@@ -31,7 +31,7 @@ class TelegramSettings(BaseModel):
         return value
 
 
-class BackendApiSettings(BaseModel):
+class FavBackendSettings(BaseModel):
     base_url: str
     token: str
     request_timeout_seconds: float = 15
@@ -41,7 +41,7 @@ class BackendApiSettings(BaseModel):
     def validate_base_url(cls, value: str) -> str:
         normalized = value.strip().rstrip('/')
         if not normalized:
-            msg = 'backend_api.base_url cannot be empty'
+            msg = 'backend.fav.base_url cannot be empty'
             raise ValueError(msg)
         _HTTP_URL_ADAPTER.validate_python(normalized)
         return normalized
@@ -51,7 +51,7 @@ class BackendApiSettings(BaseModel):
     def validate_token(cls, value: str) -> str:
         normalized = value.strip()
         if not normalized:
-            msg = 'backend_api.token cannot be empty'
+            msg = 'backend.fav.token cannot be empty'
             raise ValueError(msg)
         return normalized
 
@@ -59,9 +59,45 @@ class BackendApiSettings(BaseModel):
     @classmethod
     def validate_request_timeout_seconds(cls, value: float) -> float:
         if value <= 0:
-            msg = 'backend_api.request_timeout_seconds must be greater than 0'
+            msg = 'backend.fav.request_timeout_seconds must be greater than 0'
             raise ValueError(msg)
         return value
+
+
+class BackendSettings(BaseModel):
+    fav: FavBackendSettings
+
+
+class PublicApiSettings(BaseModel):
+    bind: str = '127.0.0.1'
+    port: int = 8092
+    token: str
+
+    @field_validator('bind')
+    @classmethod
+    def validate_bind(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            msg = 'public_api.bind cannot be empty'
+            raise ValueError(msg)
+        return normalized
+
+    @field_validator('port')
+    @classmethod
+    def validate_port(cls, value: int) -> int:
+        if not (1 <= value <= 65535):
+            msg = 'public_api.port must be between 1 and 65535'
+            raise ValueError(msg)
+        return value
+
+    @field_validator('token')
+    @classmethod
+    def validate_token(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            msg = 'public_api.token cannot be empty'
+            raise ValueError(msg)
+        return normalized
 
 
 class PollingSettings(BaseModel):
@@ -114,7 +150,8 @@ class LoggingSettings(BaseModel):
 
 class AppConfig(BaseModel):
     telegram: TelegramSettings
-    backend_api: BackendApiSettings
+    backend: BackendSettings
+    public_api: PublicApiSettings | None = None
     polling: PollingSettings = Field(default_factory=PollingSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
 

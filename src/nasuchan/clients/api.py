@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-from nasuchan.config import BackendApiSettings
+from nasuchan.config import FavBackendSettings
 
 from .exceptions import (
     BackendApiBadRequestError,
@@ -20,18 +20,27 @@ from .exceptions import (
     BackendApiUnexpectedResponseError,
     BackendApiUnprocessableError,
 )
-from .models import ControlRequest, Hanime1Seed, HealthStatus, JobSummary, NotificationRecord
+from .models import (
+    ControlRequest,
+    Hanime1DownloadedIdsPayload,
+    Hanime1DownloadedIdsResponse,
+    Hanime1Seed,
+    HealthStatus,
+    JobSummary,
+    NotificationRecord,
+)
 
 _HEALTH_PATH = '/api/v1/health'
 _CONTROL_JOBS_PATH = '/api/v1/control/jobs'
 _CONTROL_REQUESTS_PATH = '/api/v1/control/requests'
+_HANIME1_DOWNLOADED_IDS_PATH = '/api/v1/runtime/hanime1/downloaded-ids'
 _HANIME1_SEEDS_PATH = '/api/v1/control/runtime/hanime1/seeds'
 _NOTIFICATIONS_PATH = '/api/v1/notifications'
 _NOTIFICATIONS_ACK_PATH = '/api/v1/notifications/ack'
 
 
 class FavBackendClient:
-    def __init__(self, config: BackendApiSettings, client: httpx.AsyncClient | None = None) -> None:
+    def __init__(self, config: FavBackendSettings, client: httpx.AsyncClient | None = None) -> None:
         self._config = config
         self._client = client or httpx.AsyncClient(
             base_url=config.base_url,
@@ -68,6 +77,23 @@ class FavBackendClient:
         payload = await self._request_json('GET', _HANIME1_SEEDS_PATH)
         return [Hanime1Seed.model_validate(item) for item in payload.get('seeds', [])]
 
+    async def get_hanime1_downloaded_ids(self, *, if_none_match: str | None = None) -> Hanime1DownloadedIdsResponse:
+        extra_headers = {'If-None-Match': if_none_match} if if_none_match is not None else None
+        response = await self._request('GET', _HANIME1_DOWNLOADED_IDS_PATH, extra_headers=extra_headers)
+        if response.status_code == httpx.codes.NOT_MODIFIED:
+            return Hanime1DownloadedIdsResponse(
+                not_modified=True,
+                etag=response.headers.get('ETag'),
+                cache_control=response.headers.get('Cache-Control'),
+            )
+
+        payload = self._parse_json_object(response, _HANIME1_DOWNLOADED_IDS_PATH)
+        return Hanime1DownloadedIdsResponse(
+            etag=response.headers.get('ETag'),
+            cache_control=response.headers.get('Cache-Control'),
+            payload=Hanime1DownloadedIdsPayload.model_validate(payload),
+        )
+
     async def add_hanime1_seed(self, raw_seed: str) -> Hanime1Seed:
         payload = await self._request_json('POST', _HANIME1_SEEDS_PATH, json_body={'seed': raw_seed})
         return Hanime1Seed.model_validate(payload)
@@ -101,7 +127,28 @@ class FavBackendClient:
         params: Mapping[str, str] | None = None,
         json_body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        response = await self._request(
+            method,
+            path,
+            authenticated=authenticated,
+            params=params,
+            json_body=json_body,
+        )
+        return self._parse_json_object(response, path)
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        authenticated: bool = True,
+        params: Mapping[str, str] | None = None,
+        json_body: dict[str, Any] | None = None,
+        extra_headers: Mapping[str, str] | None = None,
+    ) -> httpx.Response:
         headers = {'Accept': 'application/json'}
+        if extra_headers is not None:
+            headers.update(extra_headers)
         if authenticated:
             headers['Authorization'] = f'Bearer {self._config.token}'
         try:
@@ -117,6 +164,9 @@ class FavBackendClient:
             raise BackendApiTransportError(msg, path=path) from exc
         if response.status_code >= 400:
             self._raise_for_status(path, response)
+        return response
+
+    def _parse_json_object(self, response: httpx.Response, path: str) -> dict[str, Any]:
         try:
             payload = response.json()
         except ValueError as exc:

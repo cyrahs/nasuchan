@@ -287,6 +287,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiogram" },
+    { name = "aiohttp" },
     { name = "httpx" },
     { name = "pydantic" },
 ]
@@ -301,6 +302,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiogram", specifier = ">=3.15.0,<4" },
+    { name = "aiohttp", specifier = ">=3.13.3,<4" },
     { name = "httpx", specifier = ">=0.28.1,<1" },
     { name = "pydantic", specifier = ">=2.10.6,<3" },
 ]

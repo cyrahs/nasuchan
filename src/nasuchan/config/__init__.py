@@ -1,3 +1,3 @@
-from .settings import AppConfig, BackendApiSettings, load_config
+from .settings import AppConfig, BackendSettings, FavBackendSettings, PublicApiSettings, load_config
 
-__all__ = ['AppConfig', 'BackendApiSettings', 'load_config']
+__all__ = ['AppConfig', 'BackendSettings', 'FavBackendSettings', 'PublicApiSettings', 'load_config']

@@ -14,11 +14,11 @@ from nasuchan.clients import (
     BackendApiUnexpectedResponseError,
     FavBackendClient,
 )
-from nasuchan.config.settings import BackendApiSettings
+from nasuchan.config.settings import FavBackendSettings
 
 
-def build_settings() -> BackendApiSettings:
-    return BackendApiSettings(
+def build_settings() -> FavBackendSettings:
+    return FavBackendSettings(
         base_url='https://fav.example.com',
         token='shared-token',
         request_timeout_seconds=15,
@@ -121,6 +121,51 @@ async def test_list_notifications_uses_limit_and_status_params() -> None:
         notifications = await backend_client.list_notifications(limit=25)
 
     assert [notification.id for notification in notifications] == [1]
+
+
+@pytest.mark.asyncio
+async def test_get_hanime1_downloaded_ids_forwards_if_none_match_and_returns_payload() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == '/api/v1/runtime/hanime1/downloaded-ids'
+        assert request.headers['Authorization'] == 'Bearer shared-token'
+        assert request.headers['If-None-Match'] == '"abc123"'
+        return httpx.Response(
+            200,
+            headers={'ETag': '"def456"', 'Cache-Control': 'private, max-age=60'},
+            json={
+                'ids': ['1001', '1002'],
+                'count': 2,
+                'generated_at': '2026-03-08T12:00:00Z',
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url='https://fav.example.com') as http_client:
+        backend_client = FavBackendClient(build_settings(), client=http_client)
+        response = await backend_client.get_hanime1_downloaded_ids(if_none_match='"abc123"')
+
+    assert response.not_modified is False
+    assert response.etag == '"def456"'
+    assert response.cache_control == 'private, max-age=60'
+    assert response.payload is not None
+    assert response.payload.ids == ['1001', '1002']
+
+
+@pytest.mark.asyncio
+async def test_get_hanime1_downloaded_ids_returns_not_modified_without_payload() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == '/api/v1/runtime/hanime1/downloaded-ids'
+        return httpx.Response(
+            304,
+            headers={'ETag': '"def456"', 'Cache-Control': 'private, max-age=60'},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url='https://fav.example.com') as http_client:
+        backend_client = FavBackendClient(build_settings(), client=http_client)
+        response = await backend_client.get_hanime1_downloaded_ids()
+
+    assert response.not_modified is True
+    assert response.etag == '"def456"'
+    assert response.payload is None
 
 
 @pytest.mark.asyncio

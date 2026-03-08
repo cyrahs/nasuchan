@@ -2,10 +2,15 @@
 bot_token = '123456:telegram-bot-token'
 admin_chat_id = 123456789
 
-[backend_api]
+[backend.fav]
 base_url = 'https://fav.example.com'
 token = 'same-as-fav-api.token'
 request_timeout_seconds = 15
+
+[public_api]
+bind = '127.0.0.1'
+port = 8092
+token = 'public-runtime-api-token'
 
 [polling]
 control_poll_interval_seconds = 2
