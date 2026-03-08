@@ -8,12 +8,13 @@ from pathlib import Path
 
 import httpx
 from aiogram import Bot, Dispatcher
+from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats, BotCommandScopeChat, BotCommandScopeDefault
 
-from nasuchan.clients import BackendApiError, FavBackendClient
+from nasuchan.clients import BackendApiError, FavBackendClient, NotificationRecord
 from nasuchan.config import AppConfig, load_config
-from nasuchan.services import NotificationDeliveryService, NotificationWorker
+from nasuchan.services import NotificationDeliveryService, NotificationWorker, format_notification_html
 
 from .handlers import build_commands_router, build_hanime1_router
 from .middleware import AdminChatMiddleware
@@ -81,7 +82,12 @@ def create_runtime(
     notification_service = NotificationDeliveryService(
         runtime_backend_client,
         batch_limit=config.polling.notification_batch_limit,
-        sender=lambda text: runtime_bot.send_message(config.telegram.admin_chat_id, text),
+        sender=lambda notification: send_notification_to_chat(
+            runtime_bot,
+            config.telegram.admin_chat_id,
+            notification,
+            logging.getLogger(__name__),
+        ),
     )
     dispatcher.include_router(
         build_commands_router(
@@ -115,7 +121,7 @@ async def run_polling(config_path: Path = Path('./config.toml')) -> None:
 
     try:
         await perform_startup_healthcheck(runtime.backend_client, logger)
-        await runtime.bot.set_my_commands(_BOT_COMMANDS)
+        await register_bot_commands(runtime.bot, config.telegram.admin_chat_id, logger)
         worker_task = asyncio.create_task(runtime.notification_worker.run(), name='notification-worker')
         await runtime.dispatcher.start_polling(runtime.bot)
     finally:
@@ -134,3 +140,56 @@ async def perform_startup_healthcheck(backend_client: FavBackendClient, logger: 
         logger.exception('Startup backend health check failed')
         return
     logger.info('Startup backend health check succeeded with status=%s', status.status)
+
+
+async def register_bot_commands(bot: Bot, admin_chat_id: int, logger: logging.Logger) -> None:
+    scopes = [
+        BotCommandScopeDefault(),
+        BotCommandScopeAllPrivateChats(),
+        BotCommandScopeChat(chat_id=admin_chat_id),
+    ]
+    for scope in scopes:
+        await bot.set_my_commands(_BOT_COMMANDS, scope=scope)
+    logger.info('Registered bot commands for default, private, and admin chat scopes')
+
+
+async def send_notification_to_chat(
+    bot: Bot,
+    chat_id: int,
+    notification: NotificationRecord,
+    logger: logging.Logger,
+) -> None:
+    content = format_notification_html(notification)
+    if content.image_url:
+        photo_sent = await _try_send_notification_photo(bot, chat_id, content.html, content.image_url, logger)
+        if photo_sent and len(content.html) <= 1024:
+            return
+    await bot.send_message(
+        chat_id,
+        content.html,
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
+
+
+async def _try_send_notification_photo(
+    bot: Bot,
+    chat_id: int,
+    html: str,
+    image_url: str,
+    logger: logging.Logger,
+) -> bool:
+    try:
+        if len(html) <= 1024:
+            await bot.send_photo(
+                chat_id,
+                photo=image_url,
+                caption=html,
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await bot.send_photo(chat_id, photo=image_url)
+    except Exception:
+        logger.exception('Failed to send notification image, falling back to text')
+        return False
+    return True

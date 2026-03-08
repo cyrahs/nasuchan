@@ -53,17 +53,17 @@ async def test_notification_delivery_acks_only_successful_ids() -> None:
             build_notification(2, 'Second'),
         ]
     )
-    sent_messages: list[str] = []
+    sent_titles: list[str] = []
 
-    async def sender(text: str) -> None:
-        sent_messages.append(text)
-        if 'Second' in text:
+    async def sender(notification: NotificationRecord) -> None:
+        sent_titles.append(notification.title)
+        if notification.title == 'Second':
             raise RuntimeError('send failed')
 
     service = NotificationDeliveryService(backend_client, batch_limit=50, sender=sender)
     report = await service.deliver_once()
 
-    assert sent_messages[0].startswith('[download_completed] First')
+    assert sent_titles == ['First', 'Second']
     assert backend_client.acked_ids == [1]
     assert report.delivered_ids == [1]
     assert report.failed_ids == [2]
@@ -78,15 +78,15 @@ async def test_notification_delivery_preserves_backend_order() -> None:
             build_notification(3, 'Third'),
         ]
     )
-    sent_messages: list[str] = []
+    sent_titles: list[str] = []
 
-    async def sender(text: str) -> None:
-        sent_messages.append(text)
+    async def sender(notification: NotificationRecord) -> None:
+        sent_titles.append(notification.title)
 
     service = NotificationDeliveryService(backend_client, batch_limit=50, sender=sender)
     await service.deliver_once()
 
-    assert [text.split('] ', maxsplit=1)[1].splitlines()[0] for text in sent_messages] == ['First', 'Second', 'Third']
+    assert sent_titles == ['First', 'Second', 'Third']
 
 
 @pytest.mark.asyncio
@@ -94,7 +94,7 @@ async def test_manual_and_background_delivery_do_not_overlap() -> None:
     backend_client = FakeBackendClient([build_notification(1, 'First')])
     backend_client.should_block = True
 
-    async def sender(_text: str) -> None:
+    async def sender(_notification: NotificationRecord) -> None:
         return None
 
     service = NotificationDeliveryService(backend_client, batch_limit=50, sender=sender)

@@ -7,10 +7,7 @@ from dataclasses import dataclass
 
 from nasuchan.clients import FavBackendClient, NotificationRecord
 
-from .renderers import format_notification_message
-from .text import split_text_chunks
-
-NotificationSender = Callable[[str], Awaitable[None]]
+NotificationSender = Callable[[NotificationRecord], Awaitable[None]]
 
 
 @dataclass(slots=True)
@@ -61,10 +58,8 @@ class NotificationDeliveryService:
             )
 
     async def _deliver_notification(self, notification: NotificationRecord) -> bool:
-        text = format_notification_message(notification)
         try:
-            for chunk in split_text_chunks(text):
-                await self._sender(chunk)
+            await self._sender(notification)
         except Exception:
             self._logger.exception('Failed to deliver notification %s', notification.id)
             return False
