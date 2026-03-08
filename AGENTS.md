@@ -79,6 +79,13 @@ Required boundaries:
   handling, and expected failure cases.
 - When integrating a new external service, document required environment
   variables and failure behavior close to the code that introduces it.
+- Before pushing to any public remote, scan both the current worktree and git
+  history for sensitive data such as real bot tokens, API tokens, DSNs,
+  passwords, private keys, `.env` contents, or committed `config.toml`.
+- Run `gitleaks detect --source . --no-git` for the current worktree and
+  `gitleaks git .` for repository history before any public push.
+- Use obvious placeholders in examples and tests. Never commit live secrets,
+  even temporarily, with the intention of rewriting history later.
 - Keep the initial architecture simple. Avoid premature plugin systems,
   multi-frontend abstractions, or speculative framework layers in v1.
 - Prefer small, composable modules over large mixed-responsibility files.
