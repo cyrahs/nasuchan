@@ -7,7 +7,7 @@ import pytest
 
 from nasuchan.bot.handlers.commands import handle_config, handle_jobs, handle_notifications, handle_run_callback
 from nasuchan.bot.handlers.hanime1 import handle_cancel, handle_hanime1_seed_delete, handle_hanime1_seed_input, handle_hanime1_seed_list
-from nasuchan.clients import ControlRequest, Hanime1Seed, JobSummary
+from nasuchan.clients import Hanime1Seed, JobRequest, JobSummary
 from nasuchan.config.settings import PollingSettings
 from nasuchan.services.notifications import DeliveryReport
 
@@ -28,11 +28,10 @@ class FakeState:
 
 class FakeBackendClient:
     def __init__(self) -> None:
-        self.jobs = [JobSummary(key='bilibili', name='Bilibili', enabled=True, run_on_start=False)]
+        self.jobs = [JobSummary(key='bilibili', name='Bilibili', enabled=True, run_on_start=False, cron='0 * * * *')]
         self.requests = [
-            ControlRequest(
-                request_id=10,
-                kind='trigger_job',
+            JobRequest(
+                id=10,
                 target='bilibili',
                 status='running',
                 requested_at='2026-03-08T12:00:00Z',
@@ -41,9 +40,8 @@ class FakeBackendClient:
                 result='',
                 error='',
             ),
-            ControlRequest(
-                request_id=10,
-                kind='trigger_job',
+            JobRequest(
+                id=10,
                 target='bilibili',
                 status='succeeded',
                 requested_at='2026-03-08T12:00:00Z',
@@ -60,10 +58,10 @@ class FakeBackendClient:
     async def list_jobs(self) -> list[JobSummary]:
         return self.jobs
 
-    async def create_trigger_request(self, _target: str) -> ControlRequest:
+    async def create_job_request(self, _target: str) -> JobRequest:
         return self.requests[0]
 
-    async def get_control_request(self, _request_id: int) -> ControlRequest:
+    async def get_job_request(self, _request_id: int) -> JobRequest:
         return self.requests.pop(0)
 
     async def list_hanime1_seeds(self) -> list[Hanime1Seed]:
@@ -73,9 +71,8 @@ class FakeBackendClient:
         self.added_raw_seeds.append(raw_seed)
         return self.seeds[0]
 
-    async def delete_hanime1_seed(self, video_id: str) -> Hanime1Seed:
+    async def delete_hanime1_seed(self, video_id: str) -> None:
         self.deleted_video_ids.append(video_id)
-        return self.seeds[0]
 
 
 class FakeDeliveryService:
@@ -199,7 +196,7 @@ async def test_hanime1_seed_delete_calls_backend_with_video_id() -> None:
     )
 
     assert backend_client.deleted_video_ids == ['12488']
-    assert 'Deleted Hanime1 seed' in callback.message.answer.await_args.args[0]
+    assert callback.message.answer.await_args.args[0] == 'Deleted Hanime1 seed: 12488'
 
 
 @pytest.mark.asyncio

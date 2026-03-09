@@ -4,7 +4,7 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from nasuchan.api import create_app
-from nasuchan.clients import BackendApiTransportError, Hanime1DownloadedIdsPayload, Hanime1DownloadedIdsResponse
+from nasuchan.clients import BackendApiTransportError, Hanime1Video, Hanime1VideoListResponse
 from nasuchan.config.settings import AppConfig
 
 
@@ -26,14 +26,12 @@ def build_config() -> AppConfig:
 
 
 class FakeBackendClient:
-    def __init__(self, *, response: Hanime1DownloadedIdsResponse | None = None, error: Exception | None = None) -> None:
+    def __init__(self, *, response: Hanime1VideoListResponse | None = None, error: Exception | None = None) -> None:
         self._response = response
         self._error = error
         self.closed = False
-        self.if_none_match: str | None = None
 
-    async def get_hanime1_downloaded_ids(self, *, if_none_match: str | None = None) -> Hanime1DownloadedIdsResponse:
-        self.if_none_match = if_none_match
+    async def list_hanime1_videos(self) -> Hanime1VideoListResponse:
         if self._error is not None:
             raise self._error
         assert self._response is not None
@@ -64,19 +62,16 @@ async def test_create_app_requires_public_api_config() -> None:
 
 
 @pytest.mark.asyncio
-async def test_downloaded_ids_requires_authorization_header() -> None:
+async def test_hanime1_videos_requires_authorization_header() -> None:
     backend_client = FakeBackendClient(
-        response=Hanime1DownloadedIdsResponse(
-            payload=Hanime1DownloadedIdsPayload(
-                ids=['1001'],
-                count=1,
-                generated_at='2026-03-08T12:00:00Z',
-            ),
+        response=Hanime1VideoListResponse(
+            items=[Hanime1Video(video_id='1001', title='Title', downloaded=True, watch_url='https://example.com/watch/1001')],
+            total=1,
         )
     )
     client = await _start_client(backend_client)
 
-    response = await client.get('/api/v1/runtime/hanime1/downloaded-ids')
+    response = await client.get('/api/v2/hanime1/videos')
 
     assert response.status == 401
     assert response.headers['WWW-Authenticate'] == 'Bearer realm="fav-api"'
@@ -86,20 +81,17 @@ async def test_downloaded_ids_requires_authorization_header() -> None:
 
 
 @pytest.mark.asyncio
-async def test_downloaded_ids_rejects_invalid_token() -> None:
+async def test_hanime1_videos_rejects_invalid_token() -> None:
     backend_client = FakeBackendClient(
-        response=Hanime1DownloadedIdsResponse(
-            payload=Hanime1DownloadedIdsPayload(
-                ids=['1001'],
-                count=1,
-                generated_at='2026-03-08T12:00:00Z',
-            ),
+        response=Hanime1VideoListResponse(
+            items=[Hanime1Video(video_id='1001', title='Title', downloaded=True, watch_url='https://example.com/watch/1001')],
+            total=1,
         )
     )
     client = await _start_client(backend_client)
 
     response = await client.get(
-        '/api/v1/runtime/hanime1/downloaded-ids',
+        '/api/v2/hanime1/videos',
         headers={'Authorization': 'Bearer wrong-token'},
     )
 
@@ -109,69 +101,57 @@ async def test_downloaded_ids_rejects_invalid_token() -> None:
 
 
 @pytest.mark.asyncio
-async def test_downloaded_ids_returns_payload_and_proxy_headers() -> None:
+async def test_hanime1_videos_returns_backend_payload() -> None:
     backend_client = FakeBackendClient(
-        response=Hanime1DownloadedIdsResponse(
-            etag='"etag-123"',
-            cache_control='private, max-age=60',
-            payload=Hanime1DownloadedIdsPayload(
-                ids=['1001', '1002'],
-                count=2,
-                generated_at='2026-03-08T12:00:00Z',
-            ),
+        response=Hanime1VideoListResponse(
+            items=[
+                Hanime1Video(video_id='1001', title='First', downloaded=True, watch_url='https://example.com/watch/1001'),
+                Hanime1Video(video_id='1002', title='Second', downloaded=False, watch_url='https://example.com/watch/1002'),
+            ],
+            total=2,
         )
     )
     client = await _start_client(backend_client)
 
     response = await client.get(
-        '/api/v1/runtime/hanime1/downloaded-ids',
-        headers={
-            'Authorization': 'Bearer public-runtime-api-token',
-            'If-None-Match': '"etag-old"',
-        },
+        '/api/v2/hanime1/videos',
+        headers={'Authorization': 'Bearer public-runtime-api-token'},
     )
 
-    assert backend_client.if_none_match == '"etag-old"'
     assert response.status == 200
-    assert response.headers['ETag'] == '"etag-123"'
-    assert response.headers['Cache-Control'] == 'private, max-age=60'
     assert await response.json() == {
-        'ids': ['1001', '1002'],
-        'count': 2,
-        'generated_at': '2026-03-08T12:00:00Z',
+        'items': [
+            {
+                'video_id': '1001',
+                'title': 'First',
+                'downloaded': True,
+                'uploader': None,
+                'release_date': None,
+                'plot': None,
+                'watch_url': 'https://example.com/watch/1001',
+            },
+            {
+                'video_id': '1002',
+                'title': 'Second',
+                'downloaded': False,
+                'uploader': None,
+                'release_date': None,
+                'plot': None,
+                'watch_url': 'https://example.com/watch/1002',
+            },
+        ],
+        'total': 2,
     }
     await client.close()
 
 
 @pytest.mark.asyncio
-async def test_downloaded_ids_returns_304_without_body() -> None:
-    backend_client = FakeBackendClient(
-        response=Hanime1DownloadedIdsResponse(
-            not_modified=True,
-            etag='"etag-123"',
-            cache_control='private, max-age=60',
-        )
-    )
-    client = await _start_client(backend_client)
-
-    response = await client.get(
-        '/api/v1/runtime/hanime1/downloaded-ids',
-        headers={'Authorization': 'Bearer public-runtime-api-token'},
-    )
-
-    assert response.status == 304
-    assert response.headers['ETag'] == '"etag-123"'
-    assert await response.text() == ''
-    await client.close()
-
-
-@pytest.mark.asyncio
-async def test_downloaded_ids_hides_backend_error_details() -> None:
+async def test_hanime1_videos_hides_backend_error_details() -> None:
     backend_client = FakeBackendClient(error=BackendApiTransportError('boom'))
     client = await _start_client(backend_client)
 
     response = await client.get(
-        '/api/v1/runtime/hanime1/downloaded-ids',
+        '/api/v2/hanime1/videos',
         headers={'Authorization': 'Bearer public-runtime-api-token'},
     )
 

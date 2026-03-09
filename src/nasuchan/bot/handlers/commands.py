@@ -15,11 +15,11 @@ from nasuchan.services import (
     NotificationDeliveryService,
     build_backend_user_message,
     build_help_text,
-    format_control_request_message,
     format_delivery_report,
     format_health_message,
+    format_job_request_message,
     format_jobs_message,
-    poll_control_request,
+    poll_job_request,
 )
 
 _RUN_ALL_TARGET = 'all'
@@ -81,9 +81,9 @@ async def handle_run_callback(
     await callback.answer()
     await safe_edit_message(callback.message, f'Creating request for `{target}`...')
     try:
-        request = await backend_client.create_trigger_request(target)
+        request = await backend_client.create_job_request(target)
     except BackendApiError as exc:
-        logger.exception('Failed to create control request for %s', target)
+        logger.exception('Failed to create job request for %s', target)
         await safe_edit_message(callback.message, build_backend_user_message(exc))
         return
 
@@ -91,26 +91,26 @@ async def handle_run_callback(
 
     async def on_update(current_request) -> None:  # noqa: ANN001
         nonlocal last_text
-        current_text = format_control_request_message(current_request)
+        current_text = format_job_request_message(current_request)
         if current_text == last_text:
             return
         last_text = current_text
         await safe_edit_message(callback.message, current_text)
 
     try:
-        result = await poll_control_request(
+        result = await poll_job_request(
             backend_client,
-            request.request_id,
+            request.id,
             interval_seconds=polling.control_poll_interval_seconds,
             timeout_seconds=polling.control_poll_timeout_seconds,
             on_update=on_update,
         )
     except BackendApiError as exc:
-        logger.exception('Failed while polling control request %s', request.request_id)
+        logger.exception('Failed while polling job request %s', request.id)
         await safe_edit_message(callback.message, build_backend_user_message(exc))
         return
 
-    final_text = format_control_request_message(result.request, timed_out=result.timed_out)
+    final_text = format_job_request_message(result.request, timed_out=result.timed_out)
     await safe_edit_message(callback.message, final_text)
 
 

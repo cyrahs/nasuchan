@@ -12,11 +12,11 @@ from .exceptions import (
     BackendApiUnprocessableError,
 )
 from .models import (
-    ControlRequest,
-    Hanime1DownloadedIdsPayload,
-    Hanime1DownloadedIdsResponse,
     Hanime1Seed,
+    Hanime1Video,
+    Hanime1VideoListResponse,
     HealthStatus,
+    JobRequest,
     JobSummary,
     NotificationRecord,
 )
@@ -32,12 +32,12 @@ __all__ = [
     'BackendApiUnauthorizedError',
     'BackendApiUnexpectedResponseError',
     'BackendApiUnprocessableError',
-    'ControlRequest',
-    'FavBackendClient',
-    'Hanime1DownloadedIdsPayload',
-    'Hanime1DownloadedIdsResponse',
     'Hanime1Seed',
+    'Hanime1Video',
+    'Hanime1VideoListResponse',
+    'FavBackendClient',
     'HealthStatus',
+    'JobRequest',
     'JobSummary',
     'NotificationRecord',
 ]

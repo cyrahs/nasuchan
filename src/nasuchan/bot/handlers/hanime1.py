@@ -126,7 +126,7 @@ async def handle_hanime1_seed_delete(
     if callback.message is None:
         return
     try:
-        seed = await backend_client.delete_hanime1_seed(video_id)
+        await backend_client.delete_hanime1_seed(video_id)
     except BackendApiNotFoundError:
         await callback.message.answer('That Hanime1 seed does not exist anymore.')
         return
@@ -134,7 +134,7 @@ async def handle_hanime1_seed_delete(
         logger.exception('Failed to delete Hanime1 seed %s', video_id)
         await callback.message.answer(build_backend_user_message(exc))
         return
-    await callback.message.answer(format_seed_deleted_message(seed))
+    await callback.message.answer(format_seed_deleted_message(video_id))
 
 
 def build_hanime1_router(backend_client: FavBackendClient, logger: logging.Logger | None = None) -> Router:

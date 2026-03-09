@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from html import escape
 from math import ceil
 
-from nasuchan.clients import ControlRequest, Hanime1Seed, HealthStatus, JobSummary, NotificationRecord
+from nasuchan.clients import Hanime1Seed, HealthStatus, JobRequest, JobSummary, NotificationRecord
 
 
 def build_help_text() -> str:
@@ -33,9 +33,9 @@ def format_jobs_message(jobs: list[JobSummary]) -> str:
     return '\n'.join(lines)
 
 
-def format_control_request_message(request: ControlRequest, *, timed_out: bool = False) -> str:
+def format_job_request_message(request: JobRequest, *, timed_out: bool = False) -> str:
     lines = [
-        f'Job request #{request.request_id}',
+        f'Job request #{request.id}',
         f'Target: {request.target}',
         f'Status: {request.status}',
     ]
@@ -69,8 +69,8 @@ def format_seed_added_message(seed: Hanime1Seed) -> str:
     return f'Added Hanime1 seed: {seed.video_id} | {seed.label}'
 
 
-def format_seed_deleted_message(seed: Hanime1Seed) -> str:
-    return f'Deleted Hanime1 seed: {seed.video_id} | {seed.label}'
+def format_seed_deleted_message(video_id: str) -> str:
+    return f'Deleted Hanime1 seed: {video_id}'
 
 
 @dataclass(slots=True, frozen=True)

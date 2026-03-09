@@ -21,22 +21,21 @@ from .exceptions import (
     BackendApiUnprocessableError,
 )
 from .models import (
-    ControlRequest,
-    Hanime1DownloadedIdsPayload,
-    Hanime1DownloadedIdsResponse,
     Hanime1Seed,
+    Hanime1VideoListResponse,
     HealthStatus,
+    JobRequest,
     JobSummary,
     NotificationRecord,
 )
 
-_HEALTH_PATH = '/api/v1/health'
-_CONTROL_JOBS_PATH = '/api/v1/control/jobs'
-_CONTROL_REQUESTS_PATH = '/api/v1/control/requests'
-_HANIME1_DOWNLOADED_IDS_PATH = '/api/v1/runtime/hanime1/downloaded-ids'
-_HANIME1_SEEDS_PATH = '/api/v1/control/runtime/hanime1/seeds'
-_NOTIFICATIONS_PATH = '/api/v1/notifications'
-_NOTIFICATIONS_ACK_PATH = '/api/v1/notifications/ack'
+_HEALTH_PATH = '/healthz'
+_JOBS_PATH = '/api/v2/jobs'
+_JOB_REQUESTS_PATH = '/api/v2/job-requests'
+_HANIME1_VIDEOS_PATH = '/api/v2/hanime1/videos'
+_HANIME1_SEEDS_PATH = '/api/v2/hanime1/seeds'
+_NOTIFICATIONS_PATH = '/api/v2/notifications'
+_NOTIFICATIONS_ACK_PATH = '/api/v2/notifications/ack'
 
 
 class FavBackendClient:
@@ -58,49 +57,35 @@ class FavBackendClient:
         return HealthStatus.model_validate(payload)
 
     async def list_jobs(self) -> list[JobSummary]:
-        payload = await self._request_json('GET', _CONTROL_JOBS_PATH)
-        return [JobSummary.model_validate(item) for item in payload.get('jobs', [])]
+        payload = await self._request_json('GET', _JOBS_PATH)
+        return [JobSummary.model_validate(item) for item in payload.get('items', [])]
 
-    async def create_trigger_request(self, target: str) -> ControlRequest:
+    async def create_job_request(self, target: str) -> JobRequest:
         payload = await self._request_json(
             'POST',
-            _CONTROL_REQUESTS_PATH,
-            json_body={'kind': 'trigger_job', 'target': target},
+            _JOB_REQUESTS_PATH,
+            json_body={'target': target},
         )
-        return ControlRequest.model_validate(payload)
+        return JobRequest.model_validate(payload)
 
-    async def get_control_request(self, request_id: int) -> ControlRequest:
-        payload = await self._request_json('GET', f'{_CONTROL_REQUESTS_PATH}/{request_id}')
-        return ControlRequest.model_validate(payload)
+    async def get_job_request(self, request_id: int) -> JobRequest:
+        payload = await self._request_json('GET', f'{_JOB_REQUESTS_PATH}/{request_id}')
+        return JobRequest.model_validate(payload)
+
+    async def list_hanime1_videos(self) -> Hanime1VideoListResponse:
+        payload = await self._request_json('GET', _HANIME1_VIDEOS_PATH)
+        return Hanime1VideoListResponse.model_validate(payload)
 
     async def list_hanime1_seeds(self) -> list[Hanime1Seed]:
         payload = await self._request_json('GET', _HANIME1_SEEDS_PATH)
-        return [Hanime1Seed.model_validate(item) for item in payload.get('seeds', [])]
-
-    async def get_hanime1_downloaded_ids(self, *, if_none_match: str | None = None) -> Hanime1DownloadedIdsResponse:
-        extra_headers = {'If-None-Match': if_none_match} if if_none_match is not None else None
-        response = await self._request('GET', _HANIME1_DOWNLOADED_IDS_PATH, extra_headers=extra_headers)
-        if response.status_code == httpx.codes.NOT_MODIFIED:
-            return Hanime1DownloadedIdsResponse(
-                not_modified=True,
-                etag=response.headers.get('ETag'),
-                cache_control=response.headers.get('Cache-Control'),
-            )
-
-        payload = self._parse_json_object(response, _HANIME1_DOWNLOADED_IDS_PATH)
-        return Hanime1DownloadedIdsResponse(
-            etag=response.headers.get('ETag'),
-            cache_control=response.headers.get('Cache-Control'),
-            payload=Hanime1DownloadedIdsPayload.model_validate(payload),
-        )
+        return [Hanime1Seed.model_validate(item) for item in payload.get('items', [])]
 
     async def add_hanime1_seed(self, raw_seed: str) -> Hanime1Seed:
         payload = await self._request_json('POST', _HANIME1_SEEDS_PATH, json_body={'seed': raw_seed})
         return Hanime1Seed.model_validate(payload)
 
-    async def delete_hanime1_seed(self, video_id: str) -> Hanime1Seed:
-        payload = await self._request_json('DELETE', f'{_HANIME1_SEEDS_PATH}/{video_id}')
-        return Hanime1Seed.model_validate(payload)
+    async def delete_hanime1_seed(self, video_id: str) -> None:
+        await self._request('DELETE', f'{_HANIME1_SEEDS_PATH}/{video_id}')
 
     async def list_notifications(self, *, status: str = 'unread', limit: int = 50) -> list[NotificationRecord]:
         payload = await self._request_json(
@@ -108,7 +93,7 @@ class FavBackendClient:
             _NOTIFICATIONS_PATH,
             params={'status': status, 'limit': str(limit)},
         )
-        return [NotificationRecord.model_validate(item) for item in payload.get('notifications', [])]
+        return [NotificationRecord.model_validate(item) for item in payload.get('items', [])]
 
     async def ack_notifications(self, ids: list[int]) -> int:
         payload = await self._request_json('POST', _NOTIFICATIONS_ACK_PATH, json_body={'ids': ids})
@@ -208,4 +193,9 @@ class FavBackendClient:
         if not isinstance(payload, dict):
             return None
         error = payload.get('error')
-        return error if isinstance(error, str) else None
+        if isinstance(error, str):
+            return error
+        if isinstance(error, dict):
+            code = error.get('code')
+            return code if isinstance(code, str) else None
+        return None

@@ -28,7 +28,7 @@ def build_settings() -> FavBackendSettings:
 @pytest.mark.asyncio
 async def test_health_omits_authorization_header() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == '/api/v1/health'
+        assert request.url.path == '/healthz'
         assert 'Authorization' not in request.headers
         return httpx.Response(200, json={'status': 'ok', 'generated_at': '2026-03-08T12:00:00Z'})
 
@@ -42,11 +42,14 @@ async def test_health_omits_authorization_header() -> None:
 @pytest.mark.asyncio
 async def test_authenticated_requests_include_bearer_token() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == '/api/v1/control/jobs'
+        assert request.url.path == '/api/v2/jobs'
         assert request.headers['Authorization'] == 'Bearer shared-token'
         return httpx.Response(
             200,
-            json={'jobs': [{'key': 'bilibili', 'name': 'Bilibili', 'enabled': True, 'run_on_start': False}]},
+            json={
+                'items': [{'key': 'bilibili', 'name': 'Bilibili', 'enabled': True, 'run_on_start': False, 'cron': '0 * * * *'}],
+                'total': 1,
+            },
         )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url='https://fav.example.com') as http_client:
@@ -54,6 +57,33 @@ async def test_authenticated_requests_include_bearer_token() -> None:
         jobs = await backend_client.list_jobs()
 
     assert [job.key for job in jobs] == ['bilibili']
+    assert jobs[0].cron == '0 * * * *'
+
+
+@pytest.mark.asyncio
+async def test_create_job_request_sends_target_payload_and_parses_id() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == '/api/v2/job-requests'
+        assert request.headers['Authorization'] == 'Bearer shared-token'
+        assert request.content == b'{"target":"bilibili"}'
+        return httpx.Response(
+            202,
+            json={
+                'id': 10,
+                'target': 'bilibili',
+                'status': 'pending',
+                'requested_at': '2026-03-08T12:00:00Z',
+                'result': '',
+                'error': '',
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url='https://fav.example.com') as http_client:
+        backend_client = FavBackendClient(build_settings(), client=http_client)
+        request = await backend_client.create_job_request('bilibili')
+
+    assert request.id == 10
+    assert request.status == 'pending'
 
 
 @pytest.mark.asyncio
@@ -70,12 +100,14 @@ async def test_authenticated_requests_include_bearer_token() -> None:
 )
 async def test_status_codes_map_to_typed_exceptions(status_code: int, exception_type: type[Exception]) -> None:
     def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(status_code, json={'error': 'backend_error'})
+        return httpx.Response(status_code, json={'error': {'code': 'backend_error', 'message': 'boom', 'details': None}})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url='https://fav.example.com') as http_client:
         backend_client = FavBackendClient(build_settings(), client=http_client)
-        with pytest.raises(exception_type):
+        with pytest.raises(exception_type) as exc_info:
             await backend_client.list_jobs()
+
+    assert exc_info.value.error_code == 'backend_error'
 
 
 @pytest.mark.asyncio
@@ -92,13 +124,13 @@ async def test_invalid_json_raises_unexpected_response_error() -> None:
 @pytest.mark.asyncio
 async def test_list_notifications_uses_limit_and_status_params() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == '/api/v1/notifications'
+        assert request.url.path == '/api/v2/notifications'
         assert request.url.params['status'] == 'unread'
         assert request.url.params['limit'] == '25'
         return httpx.Response(
             200,
             json={
-                'notifications': [
+                'items': [
                     {
                         'id': 1,
                         'kind': 'download_completed',
@@ -112,7 +144,8 @@ async def test_list_notifications_uses_limit_and_status_params() -> None:
                         'created_at': '2026-03-08T12:00:00Z',
                         'read_at': None,
                     }
-                ]
+                ],
+                'total': 1,
             },
         )
 
@@ -124,48 +157,48 @@ async def test_list_notifications_uses_limit_and_status_params() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_hanime1_downloaded_ids_forwards_if_none_match_and_returns_payload() -> None:
+async def test_list_hanime1_videos_returns_items_and_total() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == '/api/v1/runtime/hanime1/downloaded-ids'
+        assert request.url.path == '/api/v2/hanime1/videos'
         assert request.headers['Authorization'] == 'Bearer shared-token'
-        assert request.headers['If-None-Match'] == '"abc123"'
         return httpx.Response(
             200,
-            headers={'ETag': '"def456"', 'Cache-Control': 'private, max-age=60'},
             json={
-                'ids': ['1001', '1002'],
-                'count': 2,
-                'generated_at': '2026-03-08T12:00:00Z',
+                'items': [
+                    {
+                        'video_id': '1001',
+                        'title': 'Example',
+                        'downloaded': True,
+                        'uploader': 'uploader',
+                        'release_date': '2026-03-08',
+                        'plot': None,
+                        'watch_url': 'https://example.com/watch/1001',
+                    }
+                ],
+                'total': 1,
             },
         )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url='https://fav.example.com') as http_client:
         backend_client = FavBackendClient(build_settings(), client=http_client)
-        response = await backend_client.get_hanime1_downloaded_ids(if_none_match='"abc123"')
+        response = await backend_client.list_hanime1_videos()
 
-    assert response.not_modified is False
-    assert response.etag == '"def456"'
-    assert response.cache_control == 'private, max-age=60'
-    assert response.payload is not None
-    assert response.payload.ids == ['1001', '1002']
+    assert response.total == 1
+    assert [video.video_id for video in response.items] == ['1001']
 
 
 @pytest.mark.asyncio
-async def test_get_hanime1_downloaded_ids_returns_not_modified_without_payload() -> None:
+async def test_delete_hanime1_seed_accepts_no_content_response() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == '/api/v1/runtime/hanime1/downloaded-ids'
-        return httpx.Response(
-            304,
-            headers={'ETag': '"def456"', 'Cache-Control': 'private, max-age=60'},
-        )
+        assert request.url.path == '/api/v2/hanime1/seeds/12488'
+        assert request.headers['Authorization'] == 'Bearer shared-token'
+        return httpx.Response(204)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url='https://fav.example.com') as http_client:
         backend_client = FavBackendClient(build_settings(), client=http_client)
-        response = await backend_client.get_hanime1_downloaded_ids()
+        response = await backend_client.delete_hanime1_seed('12488')
 
-    assert response.not_modified is True
-    assert response.etag == '"def456"'
-    assert response.payload is None
+    assert response is None
 
 
 @pytest.mark.asyncio

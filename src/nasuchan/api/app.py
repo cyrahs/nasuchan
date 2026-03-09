@@ -11,8 +11,7 @@ from nasuchan.config import AppConfig, PublicApiSettings
 from nasuchan.services import RuntimeApiService
 
 _AUTH_REALM = 'fav-api'
-_DEFAULT_CACHE_CONTROL = 'private, max-age=60'
-_HANIME1_DOWNLOADED_IDS_PATH = '/api/v1/runtime/hanime1/downloaded-ids'
+_HANIME1_VIDEOS_PATH = '/api/v2/hanime1/videos'
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -59,36 +58,27 @@ def create_app(
         service=RuntimeApiService(runtime_backend_client),
         http_client=runtime_http_client,
     )
-    app.router.add_get(_HANIME1_DOWNLOADED_IDS_PATH, handle_hanime1_downloaded_ids)
+    app.router.add_get(_HANIME1_VIDEOS_PATH, handle_hanime1_videos)
     app.on_cleanup.append(_close_runtime)
     return app
 
 
-async def handle_hanime1_downloaded_ids(request: web.Request) -> web.StreamResponse:
+async def handle_hanime1_videos(request: web.Request) -> web.StreamResponse:
     auth_error = _authenticate_request(request)
     if auth_error is not None:
         return auth_error
 
-    if_none_match = request.headers.get('If-None-Match')
     runtime = request.app[_RUNTIME_KEY]
     try:
-        response = await runtime.service.get_hanime1_downloaded_ids(if_none_match=if_none_match)
+        response = await runtime.service.list_hanime1_videos()
     except BackendApiError:
-        _LOGGER.exception('Failed to proxy Hanime1 downloaded ids')
+        _LOGGER.exception('Failed to proxy Hanime1 videos')
         return _json_error(status=500, error='internal_server_error')
     except Exception:
-        _LOGGER.exception('Unexpected failure while proxying Hanime1 downloaded ids')
+        _LOGGER.exception('Unexpected failure while proxying Hanime1 videos')
         return _json_error(status=500, error='internal_server_error')
 
-    headers = {'Cache-Control': response.cache_control or _DEFAULT_CACHE_CONTROL}
-    if response.etag is not None:
-        headers['ETag'] = response.etag
-
-    if response.not_modified:
-        return web.Response(status=304, headers=headers)
-
-    assert response.payload is not None
-    return web.json_response(response.payload.model_dump(mode='json'), headers=headers)
+    return web.json_response(response.model_dump(mode='json'))
 
 
 def _authenticate_request(request: web.Request) -> web.Response | None:
