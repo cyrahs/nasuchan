@@ -6,7 +6,7 @@ build-backend = 'hatchling.build'
 name = 'nasuchan'
 version = '0.1.0'
 description = 'Telegram bot frontend for the fav backend APIs.'
-readme = 'AGENTS.md'
+readme = 'README.md'
 requires-python = '>=3.13,<3.14'
 dependencies = [
     'aiohttp>=3.13.3,<4',
