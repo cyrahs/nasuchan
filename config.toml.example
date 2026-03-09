@@ -7,6 +7,11 @@ base_url = 'https://fav.example.com'
 token = 'same-as-fav-api.token'
 request_timeout_seconds = 15
 
+[backend.aninamer]
+base_url = 'https://aninamer.example.com'
+token = 'same-as-aninamer-api.token'
+request_timeout_seconds = 15
+
 [public_api]
 bind = '127.0.0.1'
 port = 8092

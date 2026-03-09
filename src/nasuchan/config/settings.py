@@ -31,17 +31,19 @@ class TelegramSettings(BaseModel):
         return value
 
 
-class FavBackendSettings(BaseModel):
+class _BackendEndpointSettings(BaseModel):
     base_url: str
     token: str
     request_timeout_seconds: float = 15
+
+    _config_prefix: str = 'backend'
 
     @field_validator('base_url')
     @classmethod
     def validate_base_url(cls, value: str) -> str:
         normalized = value.strip().rstrip('/')
         if not normalized:
-            msg = 'backend.fav.base_url cannot be empty'
+            msg = f'{cls._config_prefix}.base_url cannot be empty'
             raise ValueError(msg)
         _HTTP_URL_ADAPTER.validate_python(normalized)
         return normalized
@@ -51,7 +53,7 @@ class FavBackendSettings(BaseModel):
     def validate_token(cls, value: str) -> str:
         normalized = value.strip()
         if not normalized:
-            msg = 'backend.fav.token cannot be empty'
+            msg = f'{cls._config_prefix}.token cannot be empty'
             raise ValueError(msg)
         return normalized
 
@@ -59,13 +61,22 @@ class FavBackendSettings(BaseModel):
     @classmethod
     def validate_request_timeout_seconds(cls, value: float) -> float:
         if value <= 0:
-            msg = 'backend.fav.request_timeout_seconds must be greater than 0'
+            msg = f'{cls._config_prefix}.request_timeout_seconds must be greater than 0'
             raise ValueError(msg)
         return value
 
 
+class FavBackendSettings(_BackendEndpointSettings):
+    _config_prefix = 'backend.fav'
+
+
+class AninamerBackendSettings(_BackendEndpointSettings):
+    _config_prefix = 'backend.aninamer'
+
+
 class BackendSettings(BaseModel):
-    fav: FavBackendSettings
+    fav: FavBackendSettings | None = None
+    aninamer: AninamerBackendSettings | None = None
 
 
 class PublicApiSettings(BaseModel):

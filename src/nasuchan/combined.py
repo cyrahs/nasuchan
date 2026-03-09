@@ -14,7 +14,7 @@ from aiohttp import web
 from nasuchan.api import create_app
 from nasuchan.api.server import PublicApiServer
 from nasuchan.bot.app import BotRuntime, create_runtime, perform_startup_healthcheck, register_bot_commands
-from nasuchan.clients import FavBackendClient
+from nasuchan.clients import AninamerClient, FavBackendClient
 from nasuchan.config import AppConfig, PublicApiSettings, load_config
 
 _DEFAULT_CONFIG_PATH = Path('./config.toml')
@@ -40,7 +40,9 @@ class BotRuntimeFactory(Protocol):
         *,
         bot: Bot | None = None,
         backend_client: FavBackendClient | None = None,
+        aninamer_client: AninamerClient | None = None,
         http_client: httpx.AsyncClient | None = None,
+        aninamer_http_client: httpx.AsyncClient | None = None,
         manage_resources: bool = True,
     ) -> BotRuntime: ...
 
@@ -52,12 +54,20 @@ class ApiServerFactory(Protocol):
 @dataclass(slots=True)
 class CombinedResources:
     bot: Bot
-    backend_client: FavBackendClient
-    http_client: httpx.AsyncClient
+    backend_client: FavBackendClient | None = None
+    aninamer_client: AninamerClient | None = None
+    http_client: httpx.AsyncClient | None = None
+    aninamer_http_client: httpx.AsyncClient | None = None
 
     async def aclose(self) -> None:
-        await self.backend_client.aclose()
-        await self.http_client.aclose()
+        if self.http_client is not None:
+            await self.http_client.aclose()
+        elif self.backend_client is not None:
+            await self.backend_client.aclose()
+        if self.aninamer_http_client is not None:
+            await self.aninamer_http_client.aclose()
+        elif self.aninamer_client is not None:
+            await self.aninamer_client.aclose()
         await self.bot.session.close()
 
 
@@ -85,29 +95,50 @@ def create_combined_runtime(
     bot: Bot | None = None,
     http_client: httpx.AsyncClient | None = None,
     backend_client: FavBackendClient | None = None,
+    aninamer_http_client: httpx.AsyncClient | None = None,
+    aninamer_client: AninamerClient | None = None,
     api_app_factory: ApiAppFactory = create_app,
     bot_runtime_factory: BotRuntimeFactory = create_runtime,
     api_server_factory: ApiServerFactory = PublicApiServer,
 ) -> CombinedRuntime:
     public_api = _require_public_api_config(config)
-    fav_backend = config.backend.fav
     shared_bot = bot or Bot(token=config.telegram.bot_token)
-    shared_http_client = http_client or httpx.AsyncClient(
-        base_url=fav_backend.base_url,
-        timeout=fav_backend.request_timeout_seconds,
-        follow_redirects=False,
-    )
-    shared_backend_client = backend_client or FavBackendClient(fav_backend, client=shared_http_client)
+    fav_backend = config.backend.fav
+    shared_http_client = http_client
+    shared_backend_client = backend_client
+    if shared_backend_client is None and fav_backend is not None:
+        shared_http_client = shared_http_client or httpx.AsyncClient(
+            base_url=fav_backend.base_url,
+            timeout=fav_backend.request_timeout_seconds,
+            follow_redirects=False,
+        )
+        shared_backend_client = FavBackendClient(fav_backend, client=shared_http_client)
+
+    aninamer_backend = config.backend.aninamer
+    shared_aninamer_http_client = aninamer_http_client
+    shared_aninamer_client = aninamer_client
+    if shared_aninamer_client is None and aninamer_backend is not None:
+        shared_aninamer_http_client = shared_aninamer_http_client or httpx.AsyncClient(
+            base_url=aninamer_backend.base_url,
+            timeout=aninamer_backend.request_timeout_seconds,
+            follow_redirects=False,
+        )
+        shared_aninamer_client = AninamerClient(aninamer_backend, client=shared_aninamer_http_client)
+
     resources = CombinedResources(
         bot=shared_bot,
         backend_client=shared_backend_client,
+        aninamer_client=shared_aninamer_client,
         http_client=shared_http_client,
+        aninamer_http_client=shared_aninamer_http_client,
     )
     bot_runtime = bot_runtime_factory(
         config,
         bot=shared_bot,
         backend_client=shared_backend_client,
+        aninamer_client=shared_aninamer_client,
         http_client=shared_http_client,
+        aninamer_http_client=shared_aninamer_http_client,
         manage_resources=False,
     )
     api_app = api_app_factory(
@@ -140,7 +171,7 @@ async def _run_runtime(config: AppConfig, runtime: CombinedRuntime) -> None:
     bot_task: asyncio.Task[None] | None = None
     try:
         await runtime.api_server.wait_started()
-        await perform_startup_healthcheck(runtime.bot_runtime.backend_client, _LOGGER)
+        await perform_startup_healthcheck(runtime.bot_runtime.command_service, _LOGGER)
         await register_bot_commands(runtime.bot_runtime.bot, config.telegram.admin_chat_id, _LOGGER)
         bot_task = asyncio.create_task(
             runtime.bot_runtime.dispatcher.start_polling(runtime.bot_runtime.bot),

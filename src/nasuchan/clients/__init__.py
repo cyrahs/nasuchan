@@ -1,3 +1,4 @@
+from .aninamer import AninamerClient
 from .api import FavBackendClient
 from .exceptions import (
     BackendApiBadRequestError,
@@ -12,6 +13,15 @@ from .exceptions import (
     BackendApiUnprocessableError,
 )
 from .models import (
+    AninamerHealthStatus,
+    AninamerJob,
+    AninamerJobListResponse,
+    AninamerJobRequest,
+    AninamerJobRequestAction,
+    AninamerRuntimeStatus,
+    AninamerStatusItem,
+    AninamerStatusResponse,
+    AninamerStatusSummary,
     Hanime1Seed,
     Hanime1Video,
     Hanime1VideoListResponse,
@@ -21,6 +31,16 @@ from .models import (
 )
 
 __all__ = [
+    'AninamerClient',
+    'AninamerHealthStatus',
+    'AninamerJob',
+    'AninamerJobListResponse',
+    'AninamerJobRequest',
+    'AninamerJobRequestAction',
+    'AninamerRuntimeStatus',
+    'AninamerStatusItem',
+    'AninamerStatusResponse',
+    'AninamerStatusSummary',
     'BackendApiBadRequestError',
     'BackendApiConflictError',
     'BackendApiError',

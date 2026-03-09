@@ -46,8 +46,8 @@ class NotificationWebhookRequest(BaseModel):
 class PublicApiRuntime:
     bot: Bot
     admin_chat_id: int
-    backend_client: FavBackendClient
-    service: RuntimeApiService
+    backend_client: FavBackendClient | None = None
+    service: RuntimeApiService | None = None
     http_client: httpx.AsyncClient | None = None
     manage_resources: bool = True
 
@@ -58,7 +58,8 @@ class PublicApiRuntime:
         if self.http_client is not None:
             await self.http_client.aclose()
             return
-        await self.backend_client.aclose()
+        if self.backend_client is not None:
+            await self.backend_client.aclose()
 
 
 _RUNTIME_KEY = web.AppKey('runtime', PublicApiRuntime)
@@ -80,12 +81,14 @@ def create_app(
     runtime_backend_client = backend_client
     if runtime_backend_client is None:
         fav_backend = config.backend.fav
-        runtime_http_client = runtime_http_client or httpx.AsyncClient(
-            base_url=fav_backend.base_url,
-            timeout=fav_backend.request_timeout_seconds,
-            follow_redirects=False,
-        )
-        runtime_backend_client = FavBackendClient(fav_backend, client=runtime_http_client)
+        if fav_backend is not None:
+            runtime_http_client = runtime_http_client or httpx.AsyncClient(
+                base_url=fav_backend.base_url,
+                timeout=fav_backend.request_timeout_seconds,
+                follow_redirects=False,
+            )
+            runtime_backend_client = FavBackendClient(fav_backend, client=runtime_http_client)
+    runtime_service = RuntimeApiService(runtime_backend_client) if runtime_backend_client is not None else None
 
     app = web.Application()
     app[_PUBLIC_API_CONFIG_KEY] = public_api
@@ -93,11 +96,12 @@ def create_app(
         bot=runtime_bot,
         admin_chat_id=config.telegram.admin_chat_id,
         backend_client=runtime_backend_client,
-        service=RuntimeApiService(runtime_backend_client),
+        service=runtime_service,
         http_client=runtime_http_client,
         manage_resources=manage_resources,
     )
-    app.router.add_get(_HANIME1_VIDEOS_PATH, handle_hanime1_videos)
+    if runtime_service is not None:
+        app.router.add_get(_HANIME1_VIDEOS_PATH, handle_hanime1_videos)
     app.router.add_post(_NOTIFICATIONS_WEBHOOK_PATH, handle_notifications_webhook)
     app.on_cleanup.append(_close_runtime)
     return app
@@ -109,6 +113,8 @@ async def handle_hanime1_videos(request: web.Request) -> web.StreamResponse:
         return auth_error
 
     runtime = request.app[_RUNTIME_KEY]
+    if runtime.service is None:
+        return _json_error(status=404, error='not_found')
     try:
         response = await runtime.service.list_hanime1_videos()
     except BackendApiError:

@@ -9,8 +9,9 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats, BotCommandScopeChat, BotCommandScopeDefault
 
-from nasuchan.clients import BackendApiError, FavBackendClient
+from nasuchan.clients import AninamerClient, FavBackendClient
 from nasuchan.config import AppConfig, load_config
+from nasuchan.services import BackendCommandService, build_backend_user_message
 
 from .handlers import build_commands_router, build_hanime1_router
 from .middleware import AdminChatMiddleware
@@ -29,8 +30,11 @@ _BOT_COMMANDS = [
 class BotRuntime:
     bot: Bot
     dispatcher: Dispatcher
-    backend_client: FavBackendClient
+    command_service: BackendCommandService
+    backend_client: FavBackendClient | None = None
+    aninamer_client: AninamerClient | None = None
     http_client: httpx.AsyncClient | None = None
+    aninamer_http_client: httpx.AsyncClient | None = None
     manage_resources: bool = True
 
     async def aclose(self) -> None:
@@ -38,8 +42,12 @@ class BotRuntime:
             return
         if self.http_client is not None:
             await self.http_client.aclose()
-        else:
+        elif self.backend_client is not None:
             await self.backend_client.aclose()
+        if self.aninamer_http_client is not None:
+            await self.aninamer_http_client.aclose()
+        elif self.aninamer_client is not None:
+            await self.aninamer_client.aclose()
         await self.bot.session.close()
 
 
@@ -55,22 +63,40 @@ def create_runtime(
     *,
     bot: Bot | None = None,
     backend_client: FavBackendClient | None = None,
+    aninamer_client: AninamerClient | None = None,
     http_client: httpx.AsyncClient | None = None,
+    aninamer_http_client: httpx.AsyncClient | None = None,
     manage_resources: bool = True,
 ) -> BotRuntime:
     runtime_http_client = http_client
+    runtime_aninamer_http_client = aninamer_http_client
     runtime_backend_client = backend_client
+    runtime_aninamer_client = aninamer_client
     if runtime_backend_client is None:
         fav_backend = config.backend.fav
-        runtime_http_client = runtime_http_client or httpx.AsyncClient(
-            base_url=fav_backend.base_url,
-            timeout=fav_backend.request_timeout_seconds,
-            follow_redirects=False,
-        )
-        runtime_backend_client = FavBackendClient(fav_backend, client=runtime_http_client)
+        if fav_backend is not None:
+            runtime_http_client = runtime_http_client or httpx.AsyncClient(
+                base_url=fav_backend.base_url,
+                timeout=fav_backend.request_timeout_seconds,
+                follow_redirects=False,
+            )
+            runtime_backend_client = FavBackendClient(fav_backend, client=runtime_http_client)
+    if runtime_aninamer_client is None:
+        aninamer_backend = config.backend.aninamer
+        if aninamer_backend is not None:
+            runtime_aninamer_http_client = runtime_aninamer_http_client or httpx.AsyncClient(
+                base_url=aninamer_backend.base_url,
+                timeout=aninamer_backend.request_timeout_seconds,
+                follow_redirects=False,
+            )
+            runtime_aninamer_client = AninamerClient(aninamer_backend, client=runtime_aninamer_http_client)
 
     runtime_bot = bot or Bot(token=config.telegram.bot_token)
     dispatcher = Dispatcher(storage=MemoryStorage())
+    command_service = BackendCommandService(
+        fav_client=runtime_backend_client,
+        aninamer_client=runtime_aninamer_client,
+    )
 
     admin_middleware = AdminChatMiddleware(config.telegram.admin_chat_id)
     dispatcher.message.outer_middleware(admin_middleware)
@@ -78,17 +104,21 @@ def create_runtime(
 
     dispatcher.include_router(
         build_commands_router(
-            runtime_backend_client,
+            command_service,
             config.polling,
         )
     )
-    dispatcher.include_router(build_hanime1_router(runtime_backend_client))
+    if runtime_backend_client is not None:
+        dispatcher.include_router(build_hanime1_router(runtime_backend_client))
 
     return BotRuntime(
         bot=runtime_bot,
         dispatcher=dispatcher,
+        command_service=command_service,
         backend_client=runtime_backend_client,
+        aninamer_client=runtime_aninamer_client,
         http_client=runtime_http_client,
+        aninamer_http_client=runtime_aninamer_http_client,
         manage_resources=manage_resources,
     )
 
@@ -100,20 +130,31 @@ async def run_polling(config_path: Path = Path('./config.toml')) -> None:
     runtime = create_runtime(config)
 
     try:
-        await perform_startup_healthcheck(runtime.backend_client, logger)
+        await perform_startup_healthcheck(runtime.command_service, logger)
         await register_bot_commands(runtime.bot, config.telegram.admin_chat_id, logger)
         await runtime.dispatcher.start_polling(runtime.bot)
     finally:
         await runtime.aclose()
 
 
-async def perform_startup_healthcheck(backend_client: FavBackendClient, logger: logging.Logger) -> None:
-    try:
-        status = await backend_client.health()
-    except BackendApiError:
-        logger.exception('Startup backend health check failed')
+async def perform_startup_healthcheck(command_service: BackendCommandService, logger: logging.Logger) -> None:
+    snapshots = await command_service.collect_health()
+    if not snapshots:
+        logger.info('Startup backend health check skipped because no backends are configured')
         return
-    logger.info('Startup backend health check succeeded with status=%s', status.status)
+    for snapshot in snapshots:
+        if snapshot.error is not None:
+            logger.warning(
+                'Startup backend health check failed for backend=%s error=%s',
+                snapshot.backend,
+                build_backend_user_message(snapshot.error),
+            )
+            continue
+        logger.info(
+            'Startup backend health check succeeded for backend=%s status=%s',
+            snapshot.backend,
+            snapshot.status,
+        )
 
 
 async def register_bot_commands(bot: Bot, admin_chat_id: int, logger: logging.Logger) -> None:

@@ -11,6 +11,7 @@ from nasuchan.bot.app import create_runtime, perform_startup_healthcheck, regist
 from nasuchan.bot.delivery import send_markdown_to_chat
 from nasuchan.clients import BackendApiTransportError, HealthStatus
 from nasuchan.config.settings import AppConfig
+from nasuchan.services import BackendCommandService
 
 
 def build_config() -> AppConfig:
@@ -71,7 +72,14 @@ async def test_startup_healthcheck_is_non_fatal_when_backend_is_unavailable() ->
         async def health(self) -> HealthStatus:
             raise BackendApiTransportError('boom')
 
-    await perform_startup_healthcheck(FailingBackendClient(), logger=SimpleNamespace(exception=lambda *args, **kwargs: None))
+    logger = SimpleNamespace(info=Mock(), warning=Mock())
+
+    await perform_startup_healthcheck(
+        BackendCommandService(fav_client=FailingBackendClient()),
+        logger=logger,
+    )
+
+    logger.warning.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -82,9 +90,21 @@ async def test_startup_healthcheck_logs_success() -> None:
         async def health(self) -> HealthStatus:
             return status
 
-    logger = SimpleNamespace(info=Mock(), exception=Mock())
+    logger = SimpleNamespace(info=Mock(), warning=Mock())
 
-    await perform_startup_healthcheck(HealthyBackendClient(), logger=logger)
+    await perform_startup_healthcheck(
+        BackendCommandService(fav_client=HealthyBackendClient()),
+        logger=logger,
+    )
+
+    logger.info.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_startup_healthcheck_skips_when_no_backends_are_configured() -> None:
+    logger = SimpleNamespace(info=Mock(), warning=Mock())
+
+    await perform_startup_healthcheck(BackendCommandService(), logger=logger)
 
     logger.info.assert_called_once()
 

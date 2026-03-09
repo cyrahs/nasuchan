@@ -9,6 +9,7 @@ import pytest
 
 from nasuchan.combined import create_combined_runtime, run_combined
 from nasuchan.config.settings import AppConfig
+from nasuchan.services import BackendCommandService
 
 
 def build_config(*, include_public_api: bool = True) -> AppConfig:
@@ -72,7 +73,9 @@ def test_create_combined_runtime_wires_shared_resources() -> None:
     assert captured['bot_runtime'] == {
         'bot': fake_bot,
         'backend_client': fake_backend_client,
+        'aninamer_client': None,
         'http_client': fake_http_client,
+        'aninamer_http_client': None,
         'manage_resources': False,
     }
     assert captured['api_app'] == {
@@ -98,7 +101,7 @@ async def test_combined_runtime_aclose_stops_server_and_closes_shared_resources(
     await runtime.aclose()
 
     runtime.api_server.stop.assert_awaited_once()
-    runtime.resources.backend_client.aclose.assert_awaited_once()
+    runtime.resources.backend_client.aclose.assert_not_awaited()
     runtime.resources.http_client.aclose.assert_awaited_once()
     runtime.resources.bot.session.close.assert_awaited_once()
 
@@ -137,7 +140,7 @@ async def test_run_combined_raises_when_bot_polling_exits(monkeypatch: pytest.Mo
         api_server=RuntimeApiServer(),
         bot_runtime=SimpleNamespace(
             bot=build_bot(),
-            backend_client=SimpleNamespace(),
+            command_service=BackendCommandService(),
             dispatcher=SimpleNamespace(start_polling=AsyncMock(return_value=None)),
         ),
         aclose=AsyncMock(),
@@ -187,7 +190,7 @@ async def test_run_combined_raises_when_public_api_task_fails(monkeypatch: pytes
         api_server=RuntimeApiServer(),
         bot_runtime=SimpleNamespace(
             bot=build_bot(),
-            backend_client=SimpleNamespace(),
+            command_service=BackendCommandService(),
             dispatcher=SimpleNamespace(start_polling=start_polling),
         ),
         aclose=AsyncMock(),

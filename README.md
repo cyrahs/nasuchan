@@ -6,6 +6,7 @@ Nasuchan 是一个面向自托管服务的前端仓库，当前主前端是 Tele
 
 - Telegram 命令与交互流程
 - Fav backend 的健康检查、任务触发、任务轮询
+- Aninamer backend 的健康检查、状态汇总、`scan_now` / `apply_job` 触发与轮询
 - Hanime1 相关列表与种子管理
 - 一个受 Bearer Token 保护的本地 HTTP API
 - 通过 webhook 把 MarkdownV2 通知转发到 Telegram 管理员会话
@@ -36,9 +37,15 @@ cp config.toml.example config.toml
 
 - `telegram.bot_token`
 - `telegram.admin_chat_id`
-- `backend.fav.base_url`
-- `backend.fav.token`
+- 至少一个 backend：
+  - `backend.fav.base_url`
+  - `backend.fav.token`
+  - 或 `backend.aninamer.base_url`
+  - 或 `backend.aninamer.token`
 - `public_api.token`（默认 combined 运行模式需要；仅单独运行 `nasuchan.bot` 时可省略）
+
+`backend.fav` 和 `backend.aninamer` 都是可选的，运行时只会装配已配置的后端能力。
+如果只配置 `aninamer`，Bot 仍然可以运行，public API 仍然可以接收通知 webhook，但 `Hanime1` 相关能力不会注册。
 
 默认同时运行 Telegram Bot 和本地 HTTP API：
 
@@ -60,6 +67,32 @@ uv run python -m nasuchan.api
 
 容器默认也会走 `python -m nasuchan`，在同一个进程里同时启动 bot polling 和 `nasuchan.api`。
 如果要让 Kubernetes Service 命中容器内的 public API，需要在部署使用的 `config.toml` 里把 `public_api.bind` 设成 `0.0.0.0`；本地开发默认仍然保持 `127.0.0.1`。
+
+## Bot 命令行为
+
+- `/health`
+  聚合展示所有已配置 backend 的健康状态。
+- `/jobs`
+  聚合展示所有已配置 backend 的 job 信息。
+  Fav 继续显示可触发 jobs，Aninamer 默认显示 `/api/v1/status` 的 summary、pending 和 failed 摘要。
+- `/run`
+  作为统一入口使用。
+  当配置了多个 backend 时，先选 backend；当只配置了一个可运行 backend 时，直接进入它的动作菜单。
+  Fav 分支继续触发现有 job request。
+  Aninamer 分支提供 `scan_now` 和 `apply_job`。
+- `/config`
+  当前仍只保留 Hanime1 入口，不承载 Aninamer 的 runtime 操作。
+
+## Aninamer 通知回调
+
+Aninamer worker 不提供前端拉取式通知流，异步结果需要主动 POST 到 Nasuchan 的 webhook：
+
+- Nasuchan 入口：`POST /api/v2/notifications/webhook`
+- Aninamer 配置：
+  - `notifications.base_url` 指向 Nasuchan public API 的根地址
+  - `notifications.bearer_token` 使用 Nasuchan 的 `public_api.token`
+
+也就是说，如果要启用 Aninamer 的异步 Telegram 通知，需要运行 combined 模式或单独部署 `nasuchan.api`。
 
 运行测试：
 
@@ -111,8 +144,12 @@ tests/         配置、client、handler、middleware、API 测试
 
 - `src/nasuchan/clients/api.py`
   当前 `FavBackendClient` 的实现，包含统一请求、鉴权、状态码到异常的映射。
+- `src/nasuchan/clients/aninamer.py`
+  `AninamerClient` 的实现，包含 `runtime`、`status`、`job-requests` 等接口。
 - `src/nasuchan/clients/models.py`
-  当前后端响应模型定义。
+  当前 Fav 与 Aninamer 的响应模型定义。
+- `src/nasuchan/services/backends.py`
+  多 backend 聚合、运行能力判断，以及 Aninamer apply 候选筛选。
 - `src/nasuchan/services/control.py`
   任务轮询的 service 示例。
 - `src/nasuchan/bot/handlers/commands.py`

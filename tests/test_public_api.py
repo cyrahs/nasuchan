@@ -26,6 +26,21 @@ def build_config() -> AppConfig:
     )
 
 
+def build_aninamer_only_config() -> AppConfig:
+    return AppConfig.model_validate(
+        {
+            'telegram': {'bot_token': '123456:telegram-bot-token', 'admin_chat_id': 123456789},
+            'backend': {'aninamer': {'base_url': 'https://aninamer.example.com', 'token': 'aninamer-token', 'request_timeout_seconds': 15}},
+            'public_api': {'bind': '127.0.0.1', 'port': 8092, 'token': 'public-runtime-api-token'},
+            'polling': {
+                'control_poll_interval_seconds': 2,
+                'control_poll_timeout_seconds': 600,
+            },
+            'logging': {'level': 'INFO'},
+        }
+    )
+
+
 class FakeBackendClient:
     def __init__(self, *, response: Hanime1VideoListResponse | None = None, error: Exception | None = None) -> None:
         self._response = response
@@ -58,6 +73,30 @@ async def test_create_app_requires_public_api_config() -> None:
 
     with pytest.raises(ValueError, match='public_api configuration is required'):
         create_app(config)
+
+
+@pytest.mark.asyncio
+async def test_create_app_without_fav_backend_still_allows_notification_webhook() -> None:
+    bot = build_bot()
+    app = create_app(build_aninamer_only_config(), bot=bot)
+    server = TestServer(app)
+    client = TestClient(server)
+    await client.start_server()
+
+    hanime_response = await client.get(
+        '/api/v2/hanime1/videos',
+        headers={'Authorization': 'Bearer public-runtime-api-token'},
+    )
+    webhook_response = await client.post(
+        '/api/v2/notifications/webhook',
+        json={'markdown': '*Done*'},
+        headers={'Authorization': 'Bearer public-runtime-api-token'},
+    )
+
+    assert hanime_response.status == 404
+    assert webhook_response.status == 200
+    assert await webhook_response.json() == {'status': 'delivered'}
+    await client.close()
 
 
 @pytest.mark.asyncio
