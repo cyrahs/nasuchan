@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import httpx
 from aiogram import Bot
 from aiohttp import web
-from pydantic import BaseModel, ConfigDict, StrictBool, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, StrictBool, StrictStr, ValidationError, field_validator
 
 from nasuchan.bot.delivery import send_markdown_to_chat
 from nasuchan.clients import BackendApiError, FavBackendClient
@@ -23,6 +23,7 @@ class NotificationWebhookRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     markdown: str
+    image_url: StrictStr = ''
     disable_web_page_preview: StrictBool = True
     disable_notification: StrictBool = False
 
@@ -34,6 +35,11 @@ class NotificationWebhookRequest(BaseModel):
             msg = 'markdown must not be empty'
             raise ValueError(msg)
         return normalized
+
+    @field_validator('image_url')
+    @classmethod
+    def validate_image_url(cls, value: str) -> str:
+        return value.strip()
 
 
 @dataclass(slots=True)
@@ -130,6 +136,7 @@ async def handle_notifications_webhook(request: web.Request) -> web.StreamRespon
             runtime.bot,
             runtime.admin_chat_id,
             payload.markdown,
+            image_url=payload.image_url,
             disable_web_page_preview=payload.disable_web_page_preview,
             disable_notification=payload.disable_notification,
         )

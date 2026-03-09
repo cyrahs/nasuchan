@@ -275,6 +275,7 @@ curl -X POST http://127.0.0.1:8092/api/v2/notifications/webhook \
   -H 'Content-Type: application/json' \
   -d '{
     "markdown": "*任务完成*\\n[查看详情](https://example.com/task/123)",
+    "image_url": "https://example.com/poster.jpg",
     "disable_web_page_preview": true,
     "disable_notification": false
   }'
@@ -283,6 +284,7 @@ curl -X POST http://127.0.0.1:8092/api/v2/notifications/webhook \
 请求规则：
 
 - `markdown` 必填，作为 Telegram `MarkdownV2` 原文直接转发
+- `image_url` 可选，存在时优先发送 Telegram 图片消息
 - `disable_web_page_preview` 可选，默认 `true`
 - `disable_notification` 可选，默认 `false`
 

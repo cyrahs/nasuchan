@@ -176,6 +176,7 @@ async def test_notifications_webhook_requires_authorization_header() -> None:
     assert response.headers['WWW-Authenticate'] == 'Bearer realm="fav-api"'
     assert await response.json() == {'error': 'missing_authorization'}
     bot.send_message.assert_not_awaited()
+    bot.send_photo.assert_not_awaited()
     await client.close()
 
 
@@ -199,6 +200,7 @@ async def test_notifications_webhook_rejects_invalid_token() -> None:
     assert response.status == 403
     assert await response.json() == {'error': 'invalid_token'}
     bot.send_message.assert_not_awaited()
+    bot.send_photo.assert_not_awaited()
     await client.close()
 
 
@@ -226,8 +228,76 @@ async def test_notifications_webhook_sends_markdown_v2_to_admin_chat() -> None:
     assert response.status == 200
     assert await response.json() == {'status': 'delivered'}
     bot.send_message.assert_awaited_once()
+    bot.send_photo.assert_not_awaited()
     assert bot.send_message.await_args.args == (123456789, '*Done*')
     assert bot.send_message.await_args.kwargs['parse_mode'] == 'MarkdownV2'
+    assert bot.send_message.await_args.kwargs['disable_web_page_preview'] is False
+    assert bot.send_message.await_args.kwargs['disable_notification'] is True
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_notifications_webhook_sends_photo_when_image_url_is_present() -> None:
+    backend_client = FakeBackendClient(
+        response=Hanime1VideoListResponse(
+            items=[Hanime1Video(video_id='1001', title='Title', downloaded=True, watch_url='https://example.com/watch/1001')],
+            total=1,
+        )
+    )
+    bot = build_bot()
+    client = await _start_client(backend_client, bot=bot)
+
+    response = await client.post(
+        '/api/v2/notifications/webhook',
+        json={
+            'markdown': '*Done*',
+            'image_url': 'https://example.com/poster.jpg',
+            'disable_notification': True,
+        },
+        headers={'Authorization': 'Bearer public-runtime-api-token'},
+    )
+
+    assert response.status == 200
+    assert await response.json() == {'status': 'delivered'}
+    bot.send_photo.assert_awaited_once()
+    bot.send_message.assert_not_awaited()
+    assert bot.send_photo.await_args.args == (123456789, 'https://example.com/poster.jpg')
+    assert bot.send_photo.await_args.kwargs['caption'] == '*Done*'
+    assert bot.send_photo.await_args.kwargs['parse_mode'] == 'MarkdownV2'
+    assert bot.send_photo.await_args.kwargs['disable_notification'] is True
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_notifications_webhook_falls_back_to_photo_then_message_for_long_caption() -> None:
+    backend_client = FakeBackendClient(
+        response=Hanime1VideoListResponse(
+            items=[Hanime1Video(video_id='1001', title='Title', downloaded=True, watch_url='https://example.com/watch/1001')],
+            total=1,
+        )
+    )
+    bot = build_bot()
+    client = await _start_client(backend_client, bot=bot)
+
+    response = await client.post(
+        '/api/v2/notifications/webhook',
+        json={
+            'markdown': 'x' * 1025,
+            'image_url': 'https://example.com/poster.jpg',
+            'disable_web_page_preview': False,
+            'disable_notification': True,
+        },
+        headers={'Authorization': 'Bearer public-runtime-api-token'},
+    )
+
+    assert response.status == 200
+    assert await response.json() == {'status': 'delivered'}
+    bot.send_photo.assert_awaited_once()
+    bot.send_message.assert_awaited_once()
+    assert bot.send_photo.await_args.args == (123456789, 'https://example.com/poster.jpg')
+    assert 'caption' not in bot.send_photo.await_args.kwargs
+    assert bot.send_photo.await_args.kwargs['disable_notification'] is True
+    assert bot.send_message.await_args.args == (123456789, 'x' * 1025)
     assert bot.send_message.await_args.kwargs['disable_web_page_preview'] is False
     assert bot.send_message.await_args.kwargs['disable_notification'] is True
     await client.close()
@@ -240,6 +310,7 @@ async def test_notifications_webhook_sends_markdown_v2_to_admin_chat() -> None:
         ('{', 'application/json'),
         ({}, None),
         ({'markdown': '   '}, None),
+        ({'markdown': '*Done*', 'image_url': 123}, None),
     ],
 )
 async def test_notifications_webhook_rejects_invalid_payloads(payload: object, content_type: str | None) -> None:
@@ -264,6 +335,7 @@ async def test_notifications_webhook_rejects_invalid_payloads(payload: object, c
     assert response.status == 400
     assert await response.json() == {'error': 'invalid_payload'}
     bot.send_message.assert_not_awaited()
+    bot.send_photo.assert_not_awaited()
     await client.close()
 
 
@@ -287,6 +359,7 @@ async def test_notifications_webhook_hides_telegram_delivery_error_details() -> 
     assert response.status == 502
     assert await response.json() == {'error': 'telegram_delivery_failed'}
     bot.send_message.assert_awaited_once()
+    bot.send_photo.assert_not_awaited()
     await client.close()
 
 
@@ -314,7 +387,8 @@ async def test_create_app_can_skip_resource_management() -> None:
 
 def build_bot(*, error: Exception | None = None) -> SimpleNamespace:
     send_message = AsyncMock(side_effect=error)
-    return SimpleNamespace(send_message=send_message, session=SimpleNamespace(close=AsyncMock()))
+    send_photo = AsyncMock(side_effect=error)
+    return SimpleNamespace(send_message=send_message, send_photo=send_photo, session=SimpleNamespace(close=AsyncMock()))
 
 
 async def _start_client(backend_client: FakeBackendClient, *, bot: SimpleNamespace | None = None) -> TestClient:

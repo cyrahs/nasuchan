@@ -107,15 +107,55 @@ async def test_register_bot_commands_sets_expected_scopes() -> None:
 
 @pytest.mark.asyncio
 async def test_send_markdown_to_chat_uses_markdown_v2_and_default_flags() -> None:
-    bot = SimpleNamespace(send_message=AsyncMock())
+    bot = SimpleNamespace(send_message=AsyncMock(), send_photo=AsyncMock())
 
     await send_markdown_to_chat(bot, 123456789, '*Hello*')
 
     bot.send_message.assert_awaited_once()
+    bot.send_photo.assert_not_awaited()
     assert bot.send_message.await_args.kwargs['disable_web_page_preview'] is True
     assert bot.send_message.await_args.kwargs['disable_notification'] is False
     assert bot.send_message.await_args.kwargs['parse_mode'] == 'MarkdownV2'
     assert bot.send_message.await_args.args == (123456789, '*Hello*')
+
+
+@pytest.mark.asyncio
+async def test_send_markdown_to_chat_uses_photo_caption_when_image_url_is_present() -> None:
+    bot = SimpleNamespace(send_message=AsyncMock(), send_photo=AsyncMock())
+
+    await send_markdown_to_chat(bot, 123456789, '*Hello*', image_url='https://example.com/poster.jpg')
+
+    bot.send_photo.assert_awaited_once()
+    bot.send_message.assert_not_awaited()
+    assert bot.send_photo.await_args.args == (123456789, 'https://example.com/poster.jpg')
+    assert bot.send_photo.await_args.kwargs['caption'] == '*Hello*'
+    assert bot.send_photo.await_args.kwargs['parse_mode'] == 'MarkdownV2'
+    assert bot.send_photo.await_args.kwargs['disable_notification'] is False
+
+
+@pytest.mark.asyncio
+async def test_send_markdown_to_chat_falls_back_to_photo_then_message_for_long_caption() -> None:
+    bot = SimpleNamespace(send_message=AsyncMock(), send_photo=AsyncMock())
+    markdown = 'x' * 1025
+
+    await send_markdown_to_chat(
+        bot,
+        123456789,
+        markdown,
+        image_url='https://example.com/poster.jpg',
+        disable_web_page_preview=False,
+        disable_notification=True,
+    )
+
+    bot.send_photo.assert_awaited_once()
+    bot.send_message.assert_awaited_once()
+    assert bot.send_photo.await_args.args == (123456789, 'https://example.com/poster.jpg')
+    assert 'caption' not in bot.send_photo.await_args.kwargs
+    assert bot.send_photo.await_args.kwargs['disable_notification'] is True
+    assert bot.send_message.await_args.args == (123456789, markdown)
+    assert bot.send_message.await_args.kwargs['disable_web_page_preview'] is False
+    assert bot.send_message.await_args.kwargs['disable_notification'] is True
+    assert bot.send_message.await_args.kwargs['parse_mode'] == 'MarkdownV2'
 
 
 @pytest.mark.asyncio
