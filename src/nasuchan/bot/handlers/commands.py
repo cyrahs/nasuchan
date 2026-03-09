@@ -17,8 +17,8 @@ from nasuchan.services import (
     BackendCommandService,
     build_backend_user_message,
     build_help_text,
-    format_aggregated_health_message,
     format_aggregated_jobs_message,
+    format_aggregated_status_message,
     format_aninamer_apply_page,
     format_aninamer_job_request_message,
     format_job_request_message,
@@ -36,14 +36,14 @@ async def handle_start(message: Message) -> None:
 
 async def handle_status(message: Message, command_service: BackendCommandService, logger: logging.Logger) -> None:
     try:
-        snapshots = await command_service.collect_health()
+        snapshot = await command_service.collect_status()
     except Exception:
-        logger.exception('Failed to collect backend health')
-        await message.answer('Failed to collect backend health.')
+        logger.exception('Failed to collect backend runtime status')
+        await message.answer('Failed to collect backend runtime status.')
         return
 
     for chunk in split_text_chunks(
-        format_aggregated_health_message(snapshots, error_lookup=build_backend_user_message)
+        format_aggregated_status_message(snapshot, error_lookup=build_backend_user_message)
     ):
         await message.answer(chunk)
 

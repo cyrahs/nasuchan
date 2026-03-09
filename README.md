@@ -71,7 +71,9 @@ uv run python -m nasuchan.api
 ## Bot 命令行为
 
 - `/status`
-  聚合展示所有已配置 backend 的健康状态。
+  聚合展示所有已配置 backend 的运行状态。
+  Aninamer 显示运行中和失败项。
+  Fav 当前只会标出已配置 job 数量，因为现有 Fav API 没有公开“列出当前运行中 job request”的接口。
 - `/jobs`
   聚合展示所有已配置 backend 的 job 信息。
   Fav 继续显示可触发 jobs，Aninamer 默认显示 `/api/v1/status` 的 summary、pending 和 failed 摘要。

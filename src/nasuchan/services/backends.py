@@ -30,6 +30,13 @@ class AggregatedJobsSnapshot:
     section_errors: dict[str, BackendApiError] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class AggregatedStatusSnapshot:
+    fav_job_count: int | None = None
+    aninamer_status: AninamerStatusResponse | None = None
+    section_errors: dict[str, BackendApiError] = field(default_factory=dict)
+
+
 @dataclass(slots=True)
 class BackendCommandService:
     fav_client: FavBackendClient | None = None
@@ -81,6 +88,29 @@ class BackendCommandService:
 
         return AggregatedJobsSnapshot(
             fav_jobs=fav_jobs,
+            aninamer_status=aninamer_status,
+            section_errors=section_errors,
+        )
+
+    async def collect_status(self) -> AggregatedStatusSnapshot:
+        section_errors: dict[str, BackendApiError] = {}
+        fav_job_count: int | None = None
+        aninamer_status: AninamerStatusResponse | None = None
+
+        if self.fav_client is not None:
+            try:
+                fav_job_count = len(await self.fav_client.list_jobs())
+            except BackendApiError as exc:
+                section_errors['fav'] = exc
+
+        if self.aninamer_client is not None:
+            try:
+                aninamer_status = await self.aninamer_client.get_status()
+            except BackendApiError as exc:
+                section_errors['aninamer'] = exc
+
+        return AggregatedStatusSnapshot(
+            fav_job_count=fav_job_count,
             aninamer_status=aninamer_status,
             section_errors=section_errors,
         )

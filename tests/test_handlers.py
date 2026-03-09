@@ -13,6 +13,7 @@ from nasuchan.bot.handlers.commands import (
     handle_fav_run_callback,
     handle_jobs,
     handle_run,
+    handle_status,
 )
 from nasuchan.bot.handlers.hanime1 import handle_cancel, handle_hanime1_seed_delete, handle_hanime1_seed_input, handle_hanime1_seed_list
 from nasuchan.clients import (
@@ -225,6 +226,26 @@ async def test_jobs_handler_renders_fav_and_aninamer_sections() -> None:
     assert 'ANINAMER' in text
     assert 'ShowA' in text
     assert 'ShowB' in text
+
+
+@pytest.mark.asyncio
+async def test_status_handler_renders_runtime_status_sections() -> None:
+    message = build_message()
+
+    await handle_status(
+        message,
+        build_service(fav=FakeFavBackendClient(), aninamer=FakeAninamerClient()),
+        logger=SimpleNamespace(exception=lambda *args, **kwargs: None),
+    )
+
+    message.answer.assert_awaited_once()
+    text = message.answer.await_args.args[0]
+    assert 'FAV' in text
+    assert 'Configured jobs: 1' in text
+    assert 'Running jobs: unavailable from current Fav API.' in text
+    assert 'ANINAMER' in text
+    assert 'Running items:' in text
+    assert '#102 ShowB' in text
 
 
 @pytest.mark.asyncio
