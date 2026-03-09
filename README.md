@@ -38,21 +38,28 @@ cp config.toml.example config.toml
 - `telegram.admin_chat_id`
 - `backend.fav.base_url`
 - `backend.fav.token`
-- `public_api.token`（如果要启用本地 HTTP API）
+- `public_api.token`（默认 combined 运行模式需要；仅单独运行 `nasuchan.bot` 时可省略）
 
-运行 Telegram Bot：
+默认同时运行 Telegram Bot 和本地 HTTP API：
+
+```bash
+uv run python -m nasuchan
+```
+
+单独运行 Telegram Bot：
 
 ```bash
 uv run python -m nasuchan.bot
 ```
 
-运行本地 HTTP API：
+单独运行本地 HTTP API：
 
 ```bash
 uv run python -m nasuchan.api
 ```
 
-通知 webhook 需要命中 `nasuchan.api` 进程，所以部署时需要同时运行这两个进程。
+容器默认也会走 `python -m nasuchan`，在同一个进程里同时启动 bot polling 和 `nasuchan.api`。
+如果要让 Kubernetes Service 命中容器内的 public API，需要在部署使用的 `config.toml` 里把 `public_api.bind` 设成 `0.0.0.0`；本地开发默认仍然保持 `127.0.0.1`。
 
 运行测试：
 

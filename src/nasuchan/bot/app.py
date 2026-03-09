@@ -31,8 +31,11 @@ class BotRuntime:
     dispatcher: Dispatcher
     backend_client: FavBackendClient
     http_client: httpx.AsyncClient | None = None
+    manage_resources: bool = True
 
     async def aclose(self) -> None:
+        if not self.manage_resources:
+            return
         if self.http_client is not None:
             await self.http_client.aclose()
         else:
@@ -53,6 +56,7 @@ def create_runtime(
     bot: Bot | None = None,
     backend_client: FavBackendClient | None = None,
     http_client: httpx.AsyncClient | None = None,
+    manage_resources: bool = True,
 ) -> BotRuntime:
     runtime_http_client = http_client
     runtime_backend_client = backend_client
@@ -85,6 +89,7 @@ def create_runtime(
         dispatcher=dispatcher,
         backend_client=runtime_backend_client,
         http_client=runtime_http_client,
+        manage_resources=manage_resources,
     )
 
 

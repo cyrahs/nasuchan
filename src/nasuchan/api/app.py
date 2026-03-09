@@ -43,8 +43,11 @@ class PublicApiRuntime:
     backend_client: FavBackendClient
     service: RuntimeApiService
     http_client: httpx.AsyncClient | None = None
+    manage_resources: bool = True
 
     async def aclose(self) -> None:
+        if not self.manage_resources:
+            return
         await self.bot.session.close()
         if self.http_client is not None:
             await self.http_client.aclose()
@@ -62,6 +65,7 @@ def create_app(
     bot: Bot | None = None,
     backend_client: FavBackendClient | None = None,
     http_client: httpx.AsyncClient | None = None,
+    manage_resources: bool = True,
 ) -> web.Application:
     public_api = _require_public_api_config(config)
 
@@ -85,6 +89,7 @@ def create_app(
         backend_client=runtime_backend_client,
         service=RuntimeApiService(runtime_backend_client),
         http_client=runtime_http_client,
+        manage_resources=manage_resources,
     )
     app.router.add_get(_HANIME1_VIDEOS_PATH, handle_hanime1_videos)
     app.router.add_post(_NOTIFICATIONS_WEBHOOK_PATH, handle_notifications_webhook)

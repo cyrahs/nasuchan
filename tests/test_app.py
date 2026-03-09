@@ -28,19 +28,41 @@ def build_config() -> AppConfig:
 
 
 class FakeBackendClient:
+    def __init__(self) -> None:
+        self.closed = False
+
     async def aclose(self) -> None:
-        return None
+        self.closed = True
 
 
 @pytest.mark.asyncio
 async def test_create_runtime_wires_dispatcher_and_services() -> None:
     fake_bot = SimpleNamespace(send_message=AsyncMock(), send_photo=AsyncMock(), session=SimpleNamespace(close=AsyncMock()))
-    runtime = create_runtime(build_config(), bot=fake_bot, backend_client=FakeBackendClient())
+    backend_client = FakeBackendClient()
+    runtime = create_runtime(build_config(), bot=fake_bot, backend_client=backend_client)
 
     assert runtime.dispatcher is not None
     assert runtime.backend_client is not None
 
     await runtime.aclose()
+    assert backend_client.closed is True
+
+
+@pytest.mark.asyncio
+async def test_create_runtime_can_skip_resource_management() -> None:
+    fake_bot = SimpleNamespace(send_message=AsyncMock(), send_photo=AsyncMock(), session=SimpleNamespace(close=AsyncMock()))
+    backend_client = FakeBackendClient()
+    runtime = create_runtime(
+        build_config(),
+        bot=fake_bot,
+        backend_client=backend_client,
+        manage_resources=False,
+    )
+
+    await runtime.aclose()
+
+    assert backend_client.closed is False
+    fake_bot.session.close.assert_not_awaited()
 
 
 @pytest.mark.asyncio

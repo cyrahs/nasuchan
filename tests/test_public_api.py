@@ -290,6 +290,28 @@ async def test_notifications_webhook_hides_telegram_delivery_error_details() -> 
     await client.close()
 
 
+@pytest.mark.asyncio
+async def test_create_app_can_skip_resource_management() -> None:
+    backend_client = FakeBackendClient(
+        response=Hanime1VideoListResponse(
+            items=[Hanime1Video(video_id='1001', title='Title', downloaded=True, watch_url='https://example.com/watch/1001')],
+            total=1,
+        )
+    )
+    bot = build_bot()
+    app = create_app(
+        build_config(),
+        backend_client=backend_client,
+        bot=bot,
+        manage_resources=False,
+    )
+
+    await app.cleanup()
+
+    assert backend_client.closed is False
+    bot.session.close.assert_not_awaited()
+
+
 def build_bot(*, error: Exception | None = None) -> SimpleNamespace:
     send_message = AsyncMock(side_effect=error)
     return SimpleNamespace(send_message=send_message, session=SimpleNamespace(close=AsyncMock()))

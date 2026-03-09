@@ -38,4 +38,4 @@ COPY config.toml.example /app/config.toml.example
 USER nasuchan
 
 # Mount your runtime config to /app/config.toml when starting the container.
-CMD ["python", "-m", "nasuchan.bot"]
+CMD ["python", "-m", "nasuchan"]

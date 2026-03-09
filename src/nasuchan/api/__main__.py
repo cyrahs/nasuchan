@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
-from aiohttp import web
-
-from nasuchan.config import AppConfig, load_config
+from nasuchan.config import AppConfig, PublicApiSettings, load_config
 
 from .app import create_app
+from .server import PublicApiServer
 
 _DEFAULT_CONFIG_PATH = Path('./config.toml')
 
@@ -20,18 +20,27 @@ def configure_logging(config: AppConfig) -> None:
 
 
 def main_sync() -> None:
-    config = load_config(_DEFAULT_CONFIG_PATH)
+    asyncio.run(run_public_api())
+
+
+async def run_public_api(config_path: Path = _DEFAULT_CONFIG_PATH) -> None:
+    config = load_config(config_path)
     configure_logging(config)
+    public_api = _require_public_api_config(config)
+    app = create_app(config)
+    server = PublicApiServer(
+        app,
+        host=public_api.bind,
+        port=public_api.port,
+    )
+    await server.run()
+
+
+def _require_public_api_config(config: AppConfig) -> PublicApiSettings:
     if config.public_api is None:
         msg = 'public_api section is required to run nasuchan.api'
         raise ValueError(msg)
-    app = create_app(config)
-    web.run_app(
-        app,
-        host=config.public_api.bind,
-        port=config.public_api.port,
-        print=None,
-    )
+    return config.public_api
 
 
 if __name__ == '__main__':
