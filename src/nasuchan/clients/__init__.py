@@ -18,7 +18,6 @@ from .models import (
     HealthStatus,
     JobRequest,
     JobSummary,
-    NotificationRecord,
 )
 
 __all__ = [
@@ -32,12 +31,11 @@ __all__ = [
     'BackendApiUnauthorizedError',
     'BackendApiUnexpectedResponseError',
     'BackendApiUnprocessableError',
+    'FavBackendClient',
     'Hanime1Seed',
     'Hanime1Video',
     'Hanime1VideoListResponse',
-    'FavBackendClient',
     'HealthStatus',
     'JobRequest',
     'JobSummary',
-    'NotificationRecord',
 ]

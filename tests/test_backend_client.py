@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import httpx
 import pytest
+import httpx
 
 from nasuchan.clients import (
     BackendApiConflictError,
@@ -119,41 +119,6 @@ async def test_invalid_json_raises_unexpected_response_error() -> None:
         backend_client = FavBackendClient(build_settings(), client=http_client)
         with pytest.raises(BackendApiUnexpectedResponseError):
             await backend_client.list_jobs()
-
-
-@pytest.mark.asyncio
-async def test_list_notifications_uses_limit_and_status_params() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == '/api/v2/notifications'
-        assert request.url.params['status'] == 'unread'
-        assert request.url.params['limit'] == '25'
-        return httpx.Response(
-            200,
-            json={
-                'items': [
-                    {
-                        'id': 1,
-                        'kind': 'download_completed',
-                        'source': 'bilibili',
-                        'title': 'Done',
-                        'body': 'body',
-                        'link_url': '',
-                        'image_url': '',
-                        'payload': {},
-                        'status': 'unread',
-                        'created_at': '2026-03-08T12:00:00Z',
-                        'read_at': None,
-                    }
-                ],
-                'total': 1,
-            },
-        )
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url='https://fav.example.com') as http_client:
-        backend_client = FavBackendClient(build_settings(), client=http_client)
-        notifications = await backend_client.list_notifications(limit=25)
-
-    assert [notification.id for notification in notifications] == [1]
 
 
 @pytest.mark.asyncio

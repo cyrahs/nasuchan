@@ -19,8 +19,6 @@ request_timeout_seconds = 15
 [polling]
 control_poll_interval_seconds = 2
 control_poll_timeout_seconds = 600
-notification_poll_interval_seconds = 5
-notification_batch_limit = 50
 
 [logging]
 level = 'INFO'
@@ -44,8 +42,6 @@ token = 'public-runtime-api-token'
 [polling]
 control_poll_interval_seconds = 2
 control_poll_timeout_seconds = 600
-notification_poll_interval_seconds = 5
-notification_batch_limit = 50
 
 [logging]
 level = 'INFO'
@@ -63,7 +59,7 @@ def test_load_config_from_root_toml(tmp_path: Path) -> None:
 
     assert config.telegram.admin_chat_id == 123456789
     assert config.backend.fav.base_url == 'https://fav.example.com'
-    assert config.polling.notification_batch_limit == 50
+    assert config.polling.control_poll_timeout_seconds == 600
     assert config.public_api is None
 
 
@@ -82,7 +78,7 @@ def test_load_config_with_public_api_section(tmp_path: Path) -> None:
         ("token = 'shared-token'", "token = ''"),
         ('admin_chat_id = 123456789', 'admin_chat_id = 0'),
         ("base_url = 'https://fav.example.com'", "base_url = 'not-a-url'"),
-        ('notification_batch_limit = 50', 'notification_batch_limit = 0'),
+        ('control_poll_interval_seconds = 2', 'control_poll_interval_seconds = 0'),
     ],
 )
 def test_invalid_config_values_raise_value_error(tmp_path: Path, needle: str, replacement: str) -> None:

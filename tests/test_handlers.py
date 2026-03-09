@@ -5,11 +5,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from nasuchan.bot.handlers.commands import handle_config, handle_jobs, handle_notifications, handle_run_callback
+from nasuchan.bot.handlers.commands import handle_config, handle_jobs, handle_run_callback
 from nasuchan.bot.handlers.hanime1 import handle_cancel, handle_hanime1_seed_delete, handle_hanime1_seed_input, handle_hanime1_seed_list
 from nasuchan.clients import Hanime1Seed, JobRequest, JobSummary
 from nasuchan.config.settings import PollingSettings
-from nasuchan.services.notifications import DeliveryReport
 
 
 class FakeState:
@@ -73,22 +72,6 @@ class FakeBackendClient:
 
     async def delete_hanime1_seed(self, video_id: str) -> None:
         self.deleted_video_ids.append(video_id)
-
-
-class FakeDeliveryService:
-    def __init__(self) -> None:
-        self.calls = 0
-
-    async def deliver_once(self) -> DeliveryReport:
-        self.calls += 1
-        return DeliveryReport(
-            fetched=3,
-            delivered=2,
-            failed=1,
-            acked=2,
-            delivered_ids=[1, 2],
-            failed_ids=[3],
-        )
 
 
 def build_message() -> SimpleNamespace:
@@ -197,18 +180,3 @@ async def test_hanime1_seed_delete_calls_backend_with_video_id() -> None:
 
     assert backend_client.deleted_video_ids == ['12488']
     assert callback.message.answer.await_args.args[0] == 'Deleted Hanime1 seed: 12488'
-
-
-@pytest.mark.asyncio
-async def test_notifications_command_triggers_single_delivery_cycle() -> None:
-    message = build_message()
-    delivery_service = FakeDeliveryService()
-
-    await handle_notifications(
-        message,
-        delivery_service,
-        logger=SimpleNamespace(exception=lambda *args, **kwargs: None),
-    )
-
-    assert delivery_service.calls == 1
-    assert 'Fetched: 3' in message.answer.await_args.args[0]

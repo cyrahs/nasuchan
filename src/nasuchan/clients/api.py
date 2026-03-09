@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from typing import Any
 
@@ -26,7 +25,6 @@ from .models import (
     HealthStatus,
     JobRequest,
     JobSummary,
-    NotificationRecord,
 )
 
 _HEALTH_PATH = '/healthz'
@@ -34,8 +32,6 @@ _JOBS_PATH = '/api/v2/jobs'
 _JOB_REQUESTS_PATH = '/api/v2/job-requests'
 _HANIME1_VIDEOS_PATH = '/api/v2/hanime1/videos'
 _HANIME1_SEEDS_PATH = '/api/v2/hanime1/seeds'
-_NOTIFICATIONS_PATH = '/api/v2/notifications'
-_NOTIFICATIONS_ACK_PATH = '/api/v2/notifications/ack'
 
 
 class FavBackendClient:
@@ -86,22 +82,6 @@ class FavBackendClient:
 
     async def delete_hanime1_seed(self, video_id: str) -> None:
         await self._request('DELETE', f'{_HANIME1_SEEDS_PATH}/{video_id}')
-
-    async def list_notifications(self, *, status: str = 'unread', limit: int = 50) -> list[NotificationRecord]:
-        payload = await self._request_json(
-            'GET',
-            _NOTIFICATIONS_PATH,
-            params={'status': status, 'limit': str(limit)},
-        )
-        return [NotificationRecord.model_validate(item) for item in payload.get('items', [])]
-
-    async def ack_notifications(self, ids: list[int]) -> int:
-        payload = await self._request_json('POST', _NOTIFICATIONS_ACK_PATH, json_body={'ids': ids})
-        updated = payload.get('updated', 0)
-        if not isinstance(updated, int):
-            msg = 'Backend returned a non-integer notifications ack count'
-            raise BackendApiUnexpectedResponseError(msg, path=_NOTIFICATIONS_ACK_PATH, response_body=json.dumps(payload))
-        return updated
 
     async def _request_json(
         self,

@@ -4,24 +4,48 @@ import logging
 from dataclasses import dataclass
 
 import httpx
+from aiogram import Bot
 from aiohttp import web
+from pydantic import BaseModel, ConfigDict, StrictBool, ValidationError, field_validator
 
+from nasuchan.bot.delivery import send_markdown_to_chat
 from nasuchan.clients import BackendApiError, FavBackendClient
 from nasuchan.config import AppConfig, PublicApiSettings
 from nasuchan.services import RuntimeApiService
 
 _AUTH_REALM = 'fav-api'
 _HANIME1_VIDEOS_PATH = '/api/v2/hanime1/videos'
+_NOTIFICATIONS_WEBHOOK_PATH = '/api/v2/notifications/webhook'
 _LOGGER = logging.getLogger(__name__)
+
+
+class NotificationWebhookRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    markdown: str
+    disable_web_page_preview: StrictBool = True
+    disable_notification: StrictBool = False
+
+    @field_validator('markdown')
+    @classmethod
+    def validate_markdown(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            msg = 'markdown must not be empty'
+            raise ValueError(msg)
+        return normalized
 
 
 @dataclass(slots=True)
 class PublicApiRuntime:
+    bot: Bot
+    admin_chat_id: int
     backend_client: FavBackendClient
     service: RuntimeApiService
     http_client: httpx.AsyncClient | None = None
 
     async def aclose(self) -> None:
+        await self.bot.session.close()
         if self.http_client is not None:
             await self.http_client.aclose()
             return
@@ -35,11 +59,13 @@ _PUBLIC_API_CONFIG_KEY = web.AppKey('public_api_config', PublicApiSettings)
 def create_app(
     config: AppConfig,
     *,
+    bot: Bot | None = None,
     backend_client: FavBackendClient | None = None,
     http_client: httpx.AsyncClient | None = None,
 ) -> web.Application:
     public_api = _require_public_api_config(config)
 
+    runtime_bot = bot or Bot(token=config.telegram.bot_token)
     runtime_http_client = http_client
     runtime_backend_client = backend_client
     if runtime_backend_client is None:
@@ -54,11 +80,14 @@ def create_app(
     app = web.Application()
     app[_PUBLIC_API_CONFIG_KEY] = public_api
     app[_RUNTIME_KEY] = PublicApiRuntime(
+        bot=runtime_bot,
+        admin_chat_id=config.telegram.admin_chat_id,
         backend_client=runtime_backend_client,
         service=RuntimeApiService(runtime_backend_client),
         http_client=runtime_http_client,
     )
     app.router.add_get(_HANIME1_VIDEOS_PATH, handle_hanime1_videos)
+    app.router.add_post(_NOTIFICATIONS_WEBHOOK_PATH, handle_notifications_webhook)
     app.on_cleanup.append(_close_runtime)
     return app
 
@@ -79,6 +108,31 @@ async def handle_hanime1_videos(request: web.Request) -> web.StreamResponse:
         return _json_error(status=500, error='internal_server_error')
 
     return web.json_response(response.model_dump(mode='json'))
+
+
+async def handle_notifications_webhook(request: web.Request) -> web.StreamResponse:
+    auth_error = _authenticate_request(request)
+    if auth_error is not None:
+        return auth_error
+
+    payload = await _parse_webhook_payload(request)
+    if payload is None:
+        return _json_error(status=400, error='invalid_payload')
+
+    runtime = request.app[_RUNTIME_KEY]
+    try:
+        await send_markdown_to_chat(
+            runtime.bot,
+            runtime.admin_chat_id,
+            payload.markdown,
+            disable_web_page_preview=payload.disable_web_page_preview,
+            disable_notification=payload.disable_notification,
+        )
+    except Exception:
+        _LOGGER.exception('Failed to deliver notification webhook to Telegram')
+        return _json_error(status=502, error='telegram_delivery_failed')
+
+    return web.json_response({'status': 'delivered'})
 
 
 def _authenticate_request(request: web.Request) -> web.Response | None:
@@ -112,6 +166,19 @@ def _require_public_api_config(config: AppConfig) -> PublicApiSettings:
         msg = 'public_api configuration is required to run the public HTTP API'
         raise ValueError(msg)
     return config.public_api
+
+
+async def _parse_webhook_payload(request: web.Request) -> NotificationWebhookRequest | None:
+    try:
+        raw_payload = await request.json()
+    except ValueError:
+        return None
+    if not isinstance(raw_payload, dict):
+        return None
+    try:
+        return NotificationWebhookRequest.model_validate(raw_payload)
+    except ValidationError:
+        return None
 
 
 def _json_error(*, status: int, error: str, headers: dict[str, str] | None = None) -> web.Response:

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 JobRequestStatus = Literal['pending', 'running', 'succeeded', 'failed', 'rejected']
-NotificationStatus = Literal['unread', 'read']
 
 
 class HealthStatus(BaseModel):
@@ -52,19 +51,3 @@ class Hanime1Video(BaseModel):
 class Hanime1VideoListResponse(BaseModel):
     items: list[Hanime1Video]
     total: int
-
-
-class NotificationRecord(BaseModel):
-    model_config = ConfigDict(extra='ignore')
-
-    id: int
-    kind: str
-    source: str
-    title: str
-    body: str
-    link_url: str
-    image_url: str
-    payload: dict[str, Any]
-    status: NotificationStatus
-    created_at: datetime
-    read_at: datetime | None = None

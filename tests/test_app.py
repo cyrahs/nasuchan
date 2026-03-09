@@ -7,8 +7,9 @@ import pytest
 
 from aiogram.types import BotCommandScopeAllPrivateChats, BotCommandScopeChat, BotCommandScopeDefault
 
-from nasuchan.bot.app import create_runtime, perform_startup_healthcheck, register_bot_commands, send_notification_to_chat
-from nasuchan.clients import BackendApiTransportError, HealthStatus, NotificationRecord
+from nasuchan.bot.app import create_runtime, perform_startup_healthcheck, register_bot_commands
+from nasuchan.bot.delivery import send_markdown_to_chat
+from nasuchan.clients import BackendApiTransportError, HealthStatus
 from nasuchan.config.settings import AppConfig
 
 
@@ -20,8 +21,6 @@ def build_config() -> AppConfig:
             'polling': {
                 'control_poll_interval_seconds': 2,
                 'control_poll_timeout_seconds': 600,
-                'notification_poll_interval_seconds': 5,
-                'notification_batch_limit': 50,
             },
             'logging': {'level': 'INFO'},
         }
@@ -29,12 +28,6 @@ def build_config() -> AppConfig:
 
 
 class FakeBackendClient:
-    async def list_notifications(self, *, _status: str, _limit: int) -> list[object]:
-        return []
-
-    async def ack_notifications(self, ids: list[int]) -> int:
-        return len(ids)
-
     async def aclose(self) -> None:
         return None
 
@@ -45,8 +38,7 @@ async def test_create_runtime_wires_dispatcher_and_services() -> None:
     runtime = create_runtime(build_config(), bot=fake_bot, backend_client=FakeBackendClient())
 
     assert runtime.dispatcher is not None
-    assert runtime.notification_service is not None
-    assert runtime.notification_worker is not None
+    assert runtime.backend_client is not None
 
     await runtime.aclose()
 
@@ -92,54 +84,24 @@ async def test_register_bot_commands_sets_expected_scopes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_send_notification_to_chat_uses_html_message_without_preview() -> None:
-    notification = NotificationRecord(
-        id=1,
-        kind='download_completed',
-        source='bilibili',
-        title='Example Title',
-        body='Example Body',
-        link_url='https://example.com/watch',
-        image_url='',
-        payload={},
-        status='unread',
-        created_at='2026-03-08T12:00:00Z',
-        read_at=None,
-    )
-    bot = SimpleNamespace(send_message=AsyncMock(), send_photo=AsyncMock())
-    logger = SimpleNamespace(exception=Mock())
+async def test_send_markdown_to_chat_uses_markdown_v2_and_default_flags() -> None:
+    bot = SimpleNamespace(send_message=AsyncMock())
 
-    await send_notification_to_chat(bot, 123456789, notification, logger)
+    await send_markdown_to_chat(bot, 123456789, '*Hello*')
 
-    bot.send_photo.assert_not_awaited()
     bot.send_message.assert_awaited_once()
     assert bot.send_message.await_args.kwargs['disable_web_page_preview'] is True
-    assert bot.send_message.await_args.kwargs['parse_mode'] == 'HTML'
-    assert (
-        bot.send_message.await_args.args[1]
-        == 'download_completed\n<b>Example Title</b>\nExample Body\n<a href="https://example.com/watch">链接</a>'
-    )
+    assert bot.send_message.await_args.kwargs['disable_notification'] is False
+    assert bot.send_message.await_args.kwargs['parse_mode'] == 'MarkdownV2'
+    assert bot.send_message.await_args.args == (123456789, '*Hello*')
 
 
 @pytest.mark.asyncio
-async def test_send_notification_to_chat_uses_photo_when_image_url_exists() -> None:
-    notification = NotificationRecord(
-        id=1,
-        kind='download_completed',
-        source='bilibili',
-        title='Example Title',
-        body='Example Body',
-        link_url='https://example.com/watch',
-        image_url='https://example.com/image.jpg',
-        payload={},
-        status='unread',
-        created_at='2026-03-08T12:00:00Z',
-        read_at=None,
-    )
-    bot = SimpleNamespace(send_message=AsyncMock(), send_photo=AsyncMock())
-    logger = SimpleNamespace(exception=Mock())
+async def test_register_bot_commands_does_not_include_notifications_command() -> None:
+    bot = SimpleNamespace(set_my_commands=AsyncMock())
+    logger = SimpleNamespace(info=Mock())
 
-    await send_notification_to_chat(bot, 123456789, notification, logger)
+    await register_bot_commands(bot, 123456789, logger)
 
-    bot.send_photo.assert_awaited_once()
-    bot.send_message.assert_not_awaited()
+    commands = bot.set_my_commands.await_args_list[0].args[0]
+    assert all(command.command != 'notifications' for command in commands)

@@ -15,8 +15,6 @@ token = 'public-runtime-api-token'
 [polling]
 control_poll_interval_seconds = 2
 control_poll_timeout_seconds = 600
-notification_poll_interval_seconds = 5
-notification_batch_limit = 50
 
 [logging]
 level = 'INFO'

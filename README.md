@@ -7,8 +7,8 @@ Nasuchan 是一个面向自托管服务的前端仓库，当前主前端是 Tele
 - Telegram 命令与交互流程
 - Fav backend 的健康检查、任务触发、任务轮询
 - Hanime1 相关列表与种子管理
-- 后端通知拉取、投递与 ack
 - 一个受 Bearer Token 保护的本地 HTTP API
+- 通过 webhook 把 MarkdownV2 通知转发到 Telegram 管理员会话
 
 ## 运行环境
 
@@ -52,6 +52,8 @@ uv run python -m nasuchan.bot
 uv run python -m nasuchan.api
 ```
 
+通知 webhook 需要命中 `nasuchan.api` 进程，所以部署时需要同时运行这两个进程。
+
 运行测试：
 
 ```bash
@@ -73,7 +75,7 @@ src/nasuchan/
   bot/         Telegram 启动、router、handler、middleware
   clients/     后端 API 客户端、异常与数据模型
   config/      配置加载与校验
-  services/    业务编排、轮询、通知投递、文本渲染
+  services/    业务编排、轮询、文本渲染
 tests/         配置、client、handler、middleware、API 测试
 ```
 
@@ -91,7 +93,7 @@ tests/         配置、client、handler、middleware、API 测试
 
 - `bot/` 只处理 Telegram 交互、状态机、按钮、消息格式。
 - `api/` 只处理 HTTP 鉴权、请求/响应映射。
-- `services/` 负责轮询、编排、跨接口组合、投递策略。
+- `services/` 负责轮询、编排和跨接口组合。
 - `clients/` 负责协议细节、认证头、URL、错误映射、响应解析。
 - `config/` 负责所有配置定义与校验，避免在别处读环境或拼配置。
 - `clients/` 与 `services/` 的边界尽量使用类型明确的 Pydantic 模型。
@@ -106,14 +108,14 @@ tests/         配置、client、handler、middleware、API 测试
   当前后端响应模型定义。
 - `src/nasuchan/services/control.py`
   任务轮询的 service 示例。
-- `src/nasuchan/services/notifications.py`
-  有状态批处理和 ack 流程的 service 示例。
 - `src/nasuchan/bot/handlers/commands.py`
   命令处理、回调按钮和用户提示文案的示例。
+- `src/nasuchan/bot/delivery.py`
+  Telegram MarkdownV2 消息投递的基础 helper。
 - `src/nasuchan/bot/handlers/hanime1.py`
   一个较完整的 feature handler 示例，包含 FSM、分页和删除流程。
 - `src/nasuchan/api/app.py`
-  本地 HTTP API 的鉴权与代理示例。
+  本地 HTTP API 的鉴权、代理和 webhook 投递示例。
 
 ## 后续接入更多后端的实现原则
 
@@ -172,7 +174,6 @@ request_timeout_seconds = 15
 - `health()`
 - `list_jobs()`
 - `create_job_request(target)`
-- `list_notifications(...)`
 
 而不是：
 
@@ -203,7 +204,6 @@ request_timeout_seconds = 15
 
 - 轮询直到任务结束
 - 多接口拼装一个用户可读结果
-- 通知批量拉取、去重、投递、ack
 - 未来跨多个 backend 的协调调用
 
 以下逻辑不要放在 `services/`：
@@ -240,7 +240,6 @@ request_timeout_seconds = 15
 - `tests/test_config.py`
 - `tests/test_backend_client.py`
 - `tests/test_handlers.py`
-- `tests/test_notifications.py`
 - `tests/test_public_api.py`
 
 新增能力时，优先沿着这些文件继续扩展；只有当测试规模明显变大时，再拆更细的测试模块。
@@ -258,6 +257,33 @@ request_timeout_seconds = 15
 这样做的好处是：
 
 - 边界最清楚
+
+## Notification Webhook
+
+通知改为 push 模式，Nasuchan 不再主动轮询后端通知列表。上游直接调用本地 HTTP API：
+
+```bash
+curl -X POST http://127.0.0.1:8092/api/v2/notifications/webhook \
+  -H 'Authorization: Bearer public-runtime-api-token' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "markdown": "*任务完成*\\n[查看详情](https://example.com/task/123)",
+    "disable_web_page_preview": true,
+    "disable_notification": false
+  }'
+```
+
+请求规则：
+
+- `markdown` 必填，作为 Telegram `MarkdownV2` 原文直接转发
+- `disable_web_page_preview` 可选，默认 `true`
+- `disable_notification` 可选，默认 `false`
+
+注意事项：
+
+- 上游必须自己负责 Telegram `MarkdownV2` 转义和格式正确性
+- webhook 固定投递到 `telegram.admin_chat_id`
+- 如果 Telegram 投递失败，接口返回 `502 {"error":"telegram_delivery_failed"}`
 - 更容易单测
 - 不会一上来把 Telegram 交互和后端协议耦合死
 
@@ -267,7 +293,7 @@ request_timeout_seconds = 15
 - 是否更新了 `config.toml.example`？
 - client 方法是否是 async 且面向领域，而不是面向 Telegram？
 - 是否把状态码和错误码映射成了稳定异常？
-- 是否在 `services/` 里承接了轮询、组合、重试或 ack 等流程？
+- 是否在 `services/` 里承接了轮询、组合、重试或 webhook 转发等流程？
 - handler/API 是否只做输入输出转换？
 - 是否补了至少一条成功路径和一条失败路径测试？
 - 是否避免把真实 token、URL、`.env` 内容写进仓库？

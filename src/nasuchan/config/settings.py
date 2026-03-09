@@ -103,26 +103,15 @@ class PublicApiSettings(BaseModel):
 class PollingSettings(BaseModel):
     control_poll_interval_seconds: float = 2
     control_poll_timeout_seconds: float = 600
-    notification_poll_interval_seconds: float = 5
-    notification_batch_limit: int = 50
 
     @field_validator(
         'control_poll_interval_seconds',
         'control_poll_timeout_seconds',
-        'notification_poll_interval_seconds',
     )
     @classmethod
     def validate_positive_seconds(cls, value: float) -> float:
         if value <= 0:
             msg = 'polling intervals must be greater than 0'
-            raise ValueError(msg)
-        return value
-
-    @field_validator('notification_batch_limit')
-    @classmethod
-    def validate_notification_batch_limit(cls, value: int) -> int:
-        if not (1 <= value <= 200):
-            msg = 'polling.notification_batch_limit must be between 1 and 200'
             raise ValueError(msg)
         return value
 

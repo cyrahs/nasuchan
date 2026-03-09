@@ -12,10 +12,8 @@ from nasuchan.clients import BackendApiError, FavBackendClient
 from nasuchan.config.settings import PollingSettings
 from nasuchan.bot.handlers.hanime1 import build_seed_menu_keyboard
 from nasuchan.services import (
-    NotificationDeliveryService,
     build_backend_user_message,
     build_help_text,
-    format_delivery_report,
     format_health_message,
     format_job_request_message,
     format_jobs_message,
@@ -126,24 +124,9 @@ async def handle_config_callback(callback: CallbackQuery) -> None:
             raise
 
 
-async def handle_notifications(
-    message: Message,
-    delivery_service: NotificationDeliveryService,
-    logger: logging.Logger,
-) -> None:
-    try:
-        report = await delivery_service.deliver_once()
-    except BackendApiError as exc:
-        logger.exception('Failed to run manual notification delivery')
-        await message.answer(build_backend_user_message(exc))
-        return
-    await message.answer(format_delivery_report(report.fetched, report.delivered, report.failed, report.acked))
-
-
 def build_commands_router(
     backend_client: FavBackendClient,
     polling: PollingSettings,
-    delivery_service: NotificationDeliveryService,
     logger: logging.Logger | None = None,
 ) -> Router:
     command_logger = logger or logging.getLogger(__name__)
@@ -176,10 +159,6 @@ def build_commands_router(
     @router.callback_query(F.data == 'config:hanime1')
     async def config_callback_handler(callback: CallbackQuery) -> None:
         await handle_config_callback(callback)
-
-    @router.message(Command('notifications'))
-    async def notifications_handler(message: Message) -> None:
-        await handle_notifications(message, delivery_service, command_logger)
 
     return router
 

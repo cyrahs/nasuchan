@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
@@ -17,8 +20,6 @@ def build_config() -> AppConfig:
             'polling': {
                 'control_poll_interval_seconds': 2,
                 'control_poll_timeout_seconds': 600,
-                'notification_poll_interval_seconds': 5,
-                'notification_batch_limit': 50,
             },
             'logging': {'level': 'INFO'},
         }
@@ -50,8 +51,6 @@ async def test_create_app_requires_public_api_config() -> None:
             'polling': {
                 'control_poll_interval_seconds': 2,
                 'control_poll_timeout_seconds': 600,
-                'notification_poll_interval_seconds': 5,
-                'notification_batch_limit': 50,
             },
             'logging': {'level': 'INFO'},
         }
@@ -160,8 +159,144 @@ async def test_hanime1_videos_hides_backend_error_details() -> None:
     await client.close()
 
 
-async def _start_client(backend_client: FakeBackendClient) -> TestClient:
-    app = create_app(build_config(), backend_client=backend_client)
+@pytest.mark.asyncio
+async def test_notifications_webhook_requires_authorization_header() -> None:
+    backend_client = FakeBackendClient(
+        response=Hanime1VideoListResponse(
+            items=[Hanime1Video(video_id='1001', title='Title', downloaded=True, watch_url='https://example.com/watch/1001')],
+            total=1,
+        )
+    )
+    bot = build_bot()
+    client = await _start_client(backend_client, bot=bot)
+
+    response = await client.post('/api/v2/notifications/webhook', json={'markdown': '*Done*'})
+
+    assert response.status == 401
+    assert response.headers['WWW-Authenticate'] == 'Bearer realm="fav-api"'
+    assert await response.json() == {'error': 'missing_authorization'}
+    bot.send_message.assert_not_awaited()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_notifications_webhook_rejects_invalid_token() -> None:
+    backend_client = FakeBackendClient(
+        response=Hanime1VideoListResponse(
+            items=[Hanime1Video(video_id='1001', title='Title', downloaded=True, watch_url='https://example.com/watch/1001')],
+            total=1,
+        )
+    )
+    bot = build_bot()
+    client = await _start_client(backend_client, bot=bot)
+
+    response = await client.post(
+        '/api/v2/notifications/webhook',
+        json={'markdown': '*Done*'},
+        headers={'Authorization': 'Bearer wrong-token'},
+    )
+
+    assert response.status == 403
+    assert await response.json() == {'error': 'invalid_token'}
+    bot.send_message.assert_not_awaited()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_notifications_webhook_sends_markdown_v2_to_admin_chat() -> None:
+    backend_client = FakeBackendClient(
+        response=Hanime1VideoListResponse(
+            items=[Hanime1Video(video_id='1001', title='Title', downloaded=True, watch_url='https://example.com/watch/1001')],
+            total=1,
+        )
+    )
+    bot = build_bot()
+    client = await _start_client(backend_client, bot=bot)
+
+    response = await client.post(
+        '/api/v2/notifications/webhook',
+        json={
+            'markdown': '*Done*',
+            'disable_web_page_preview': False,
+            'disable_notification': True,
+        },
+        headers={'Authorization': 'Bearer public-runtime-api-token'},
+    )
+
+    assert response.status == 200
+    assert await response.json() == {'status': 'delivered'}
+    bot.send_message.assert_awaited_once()
+    assert bot.send_message.await_args.args == (123456789, '*Done*')
+    assert bot.send_message.await_args.kwargs['parse_mode'] == 'MarkdownV2'
+    assert bot.send_message.await_args.kwargs['disable_web_page_preview'] is False
+    assert bot.send_message.await_args.kwargs['disable_notification'] is True
+    await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ('payload', 'content_type'),
+    [
+        ('{', 'application/json'),
+        ({}, None),
+        ({'markdown': '   '}, None),
+    ],
+)
+async def test_notifications_webhook_rejects_invalid_payloads(payload: object, content_type: str | None) -> None:
+    backend_client = FakeBackendClient(
+        response=Hanime1VideoListResponse(
+            items=[Hanime1Video(video_id='1001', title='Title', downloaded=True, watch_url='https://example.com/watch/1001')],
+            total=1,
+        )
+    )
+    bot = build_bot()
+    client = await _start_client(backend_client, bot=bot)
+
+    request_kwargs = {'headers': {'Authorization': 'Bearer public-runtime-api-token'}}
+    if content_type is not None:
+        request_kwargs['data'] = payload
+        request_kwargs['headers']['Content-Type'] = content_type
+    else:
+        request_kwargs['json'] = payload
+
+    response = await client.post('/api/v2/notifications/webhook', **request_kwargs)
+
+    assert response.status == 400
+    assert await response.json() == {'error': 'invalid_payload'}
+    bot.send_message.assert_not_awaited()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_notifications_webhook_hides_telegram_delivery_error_details() -> None:
+    backend_client = FakeBackendClient(
+        response=Hanime1VideoListResponse(
+            items=[Hanime1Video(video_id='1001', title='Title', downloaded=True, watch_url='https://example.com/watch/1001')],
+            total=1,
+        )
+    )
+    bot = build_bot(error=RuntimeError('boom'))
+    client = await _start_client(backend_client, bot=bot)
+
+    response = await client.post(
+        '/api/v2/notifications/webhook',
+        json={'markdown': '*Done*'},
+        headers={'Authorization': 'Bearer public-runtime-api-token'},
+    )
+
+    assert response.status == 502
+    assert await response.json() == {'error': 'telegram_delivery_failed'}
+    bot.send_message.assert_awaited_once()
+    await client.close()
+
+
+def build_bot(*, error: Exception | None = None) -> SimpleNamespace:
+    send_message = AsyncMock(side_effect=error)
+    return SimpleNamespace(send_message=send_message, session=SimpleNamespace(close=AsyncMock()))
+
+
+async def _start_client(backend_client: FakeBackendClient, *, bot: SimpleNamespace | None = None) -> TestClient:
+    app = create_app(build_config(), backend_client=backend_client, bot=bot)
     server = TestServer(app)
     client = TestClient(server)
     await client.start_server()
