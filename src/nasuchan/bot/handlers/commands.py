@@ -34,7 +34,7 @@ async def handle_start(message: Message) -> None:
     await message.answer(build_help_text())
 
 
-async def handle_health(message: Message, command_service: BackendCommandService, logger: logging.Logger) -> None:
+async def handle_status(message: Message, command_service: BackendCommandService, logger: logging.Logger) -> None:
     try:
         snapshots = await command_service.collect_health()
     except Exception:
@@ -239,9 +239,9 @@ def build_commands_router(
     async def start_handler(message: Message) -> None:
         await handle_start(message)
 
-    @router.message(Command('health'))
-    async def health_handler(message: Message) -> None:
-        await handle_health(message, command_service, command_logger)
+    @router.message(Command('status'))
+    async def status_handler(message: Message) -> None:
+        await handle_status(message, command_service, command_logger)
 
     @router.message(Command('jobs'))
     async def jobs_handler(message: Message) -> None:

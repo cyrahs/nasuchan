@@ -70,7 +70,7 @@ uv run python -m nasuchan.api
 
 ## Bot 命令行为
 
-- `/health`
+- `/status`
   聚合展示所有已配置 backend 的健康状态。
 - `/jobs`
   聚合展示所有已配置 backend 的 job 信息。

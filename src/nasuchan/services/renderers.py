@@ -20,7 +20,7 @@ def build_help_text() -> str:
     return (
         'Nasuchan admin commands:\n'
         '/start - show this help\n'
-        '/health - check backend health across configured backends\n'
+        '/status - check backend status across configured backends\n'
         '/jobs - list backend jobs and status\n'
         '/run - trigger a backend action\n'
         '/config - open runtime config actions\n'
@@ -29,7 +29,7 @@ def build_help_text() -> str:
 
 
 def format_health_message(status: HealthStatus) -> str:
-    return f'Backend health: {status.status}\nGenerated at: {status.generated_at.isoformat()}'
+    return f'Backend status: {status.status}\nGenerated at: {status.generated_at.isoformat()}'
 
 
 def format_aggregated_health_message(
@@ -39,7 +39,7 @@ def format_aggregated_health_message(
 ) -> str:
     if not snapshots:
         return 'No backends are currently configured.'
-    lines = ['Backend health:']
+    lines = ['Backend status:']
     for snapshot in snapshots:
         title = snapshot.backend.upper()
         if snapshot.error is not None:

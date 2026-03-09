@@ -18,7 +18,7 @@ from .middleware import AdminChatMiddleware
 
 _BOT_COMMANDS = [
     BotCommand(command='start', description='Show help'),
-    BotCommand(command='health', description='Check backend health'),
+    BotCommand(command='status', description='Check backend status'),
     BotCommand(command='jobs', description='List backend jobs'),
     BotCommand(command='run', description='Trigger a backend job'),
     BotCommand(command='config', description='Manage runtime configuration'),
