@@ -5,8 +5,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.methods import SendPhoto
 
 from nasuchan.api import create_app
+import nasuchan.bot.delivery as delivery_module
 from nasuchan.clients import BackendApiTransportError, Hanime1Video, Hanime1VideoListResponse
 from nasuchan.config.settings import AppConfig
 
@@ -55,6 +58,10 @@ class FakeBackendClient:
 
     async def aclose(self) -> None:
         self.closed = True
+
+
+def telegram_bad_request(message: str = 'bad image') -> TelegramBadRequest:
+    return TelegramBadRequest(method=SendPhoto(chat_id=123456789, photo='https://example.com/poster.jpg'), message=message)
 
 
 @pytest.mark.asyncio
@@ -374,6 +381,40 @@ async def test_notifications_webhook_falls_back_to_photo_then_message_for_long_c
     assert bot.send_message.await_args.kwargs['disable_web_page_preview'] is False
     assert bot.send_message.await_args.kwargs['disable_notification'] is True
     bot.pin_chat_message.assert_not_awaited()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_notifications_webhook_falls_back_to_text_when_image_delivery_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    backend_client = FakeBackendClient(
+        response=Hanime1VideoListResponse(
+            items=[Hanime1Video(video_id='1001', title='Title', downloaded=True, watch_url='https://example.com/watch/1001')],
+            total=1,
+        )
+    )
+    bot = build_bot()
+    bot.send_photo.side_effect = telegram_bad_request()
+
+    async def fail_download(_image_url: str) -> None:
+        raise delivery_module._ImageDownloadError('bad download')  # noqa: SLF001
+
+    monkeypatch.setattr(delivery_module, '_download_image_to_temp_file', fail_download)
+    client = await _start_client(backend_client, bot=bot)
+
+    response = await client.post(
+        '/api/v2/notifications/webhook',
+        json={
+            'markdown': '*Done*',
+            'image_url': 'https://example.com/poster.jpg',
+        },
+        headers={'Authorization': 'Bearer public-runtime-api-token'},
+    )
+
+    assert response.status == 200
+    assert await response.json() == {'status': 'delivered'}
+    bot.send_photo.assert_awaited_once()
+    bot.send_message.assert_awaited_once()
+    assert bot.send_message.await_args.args == (123456789, '*Done*\n\n图片发送失败, 已改为纯文本通知')
     await client.close()
 
 
