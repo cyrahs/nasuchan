@@ -26,6 +26,7 @@ class NotificationWebhookRequest(BaseModel):
     image_url: StrictStr = ''
     disable_web_page_preview: StrictBool = True
     disable_notification: StrictBool = False
+    pin: StrictBool = False
 
     @field_validator('markdown')
     @classmethod
@@ -145,6 +146,7 @@ async def handle_notifications_webhook(request: web.Request) -> web.StreamRespon
             image_url=payload.image_url,
             disable_web_page_preview=payload.disable_web_page_preview,
             disable_notification=payload.disable_notification,
+            pin=payload.pin,
         )
     except Exception:
         _LOGGER.exception('Failed to deliver notification webhook to Telegram')

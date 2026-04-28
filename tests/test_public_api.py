@@ -272,6 +272,39 @@ async def test_notifications_webhook_sends_markdown_v2_to_admin_chat() -> None:
     assert bot.send_message.await_args.kwargs['parse_mode'] == 'MarkdownV2'
     assert bot.send_message.await_args.kwargs['disable_web_page_preview'] is False
     assert bot.send_message.await_args.kwargs['disable_notification'] is True
+    bot.pin_chat_message.assert_not_awaited()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_notifications_webhook_pins_message_when_requested() -> None:
+    backend_client = FakeBackendClient(
+        response=Hanime1VideoListResponse(
+            items=[Hanime1Video(video_id='1001', title='Title', downloaded=True, watch_url='https://example.com/watch/1001')],
+            total=1,
+        )
+    )
+    bot = build_bot(message_id=456)
+    client = await _start_client(backend_client, bot=bot)
+
+    response = await client.post(
+        '/api/v2/notifications/webhook',
+        json={
+            'markdown': '*Done*',
+            'disable_notification': True,
+            'pin': True,
+        },
+        headers={'Authorization': 'Bearer public-runtime-api-token'},
+    )
+
+    assert response.status == 200
+    assert await response.json() == {'status': 'delivered'}
+    bot.send_message.assert_awaited_once()
+    bot.pin_chat_message.assert_awaited_once_with(
+        chat_id=123456789,
+        message_id=456,
+        disable_notification=True,
+    )
     await client.close()
 
 
@@ -304,6 +337,7 @@ async def test_notifications_webhook_sends_photo_when_image_url_is_present() -> 
     assert bot.send_photo.await_args.kwargs['caption'] == '*Done*'
     assert bot.send_photo.await_args.kwargs['parse_mode'] == 'MarkdownV2'
     assert bot.send_photo.await_args.kwargs['disable_notification'] is True
+    bot.pin_chat_message.assert_not_awaited()
     await client.close()
 
 
@@ -339,6 +373,7 @@ async def test_notifications_webhook_falls_back_to_photo_then_message_for_long_c
     assert bot.send_message.await_args.args == (123456789, 'x' * 1025)
     assert bot.send_message.await_args.kwargs['disable_web_page_preview'] is False
     assert bot.send_message.await_args.kwargs['disable_notification'] is True
+    bot.pin_chat_message.assert_not_awaited()
     await client.close()
 
 
@@ -350,6 +385,7 @@ async def test_notifications_webhook_falls_back_to_photo_then_message_for_long_c
         ({}, None),
         ({'markdown': '   '}, None),
         ({'markdown': '*Done*', 'image_url': 123}, None),
+        ({'markdown': '*Done*', 'pin': 'true'}, None),
     ],
 )
 async def test_notifications_webhook_rejects_invalid_payloads(payload: object, content_type: str | None) -> None:
@@ -375,6 +411,7 @@ async def test_notifications_webhook_rejects_invalid_payloads(payload: object, c
     assert await response.json() == {'error': 'invalid_payload'}
     bot.send_message.assert_not_awaited()
     bot.send_photo.assert_not_awaited()
+    bot.pin_chat_message.assert_not_awaited()
     await client.close()
 
 
@@ -399,6 +436,7 @@ async def test_notifications_webhook_hides_telegram_delivery_error_details() -> 
     assert await response.json() == {'error': 'telegram_delivery_failed'}
     bot.send_message.assert_awaited_once()
     bot.send_photo.assert_not_awaited()
+    bot.pin_chat_message.assert_not_awaited()
     await client.close()
 
 
@@ -424,10 +462,18 @@ async def test_create_app_can_skip_resource_management() -> None:
     bot.session.close.assert_not_awaited()
 
 
-def build_bot(*, error: Exception | None = None) -> SimpleNamespace:
+def build_bot(*, error: Exception | None = None, message_id: int = 456, photo_message_id: int = 789) -> SimpleNamespace:
     send_message = AsyncMock(side_effect=error)
     send_photo = AsyncMock(side_effect=error)
-    return SimpleNamespace(send_message=send_message, send_photo=send_photo, session=SimpleNamespace(close=AsyncMock()))
+    if error is None:
+        send_message.return_value = SimpleNamespace(message_id=message_id)
+        send_photo.return_value = SimpleNamespace(message_id=photo_message_id)
+    return SimpleNamespace(
+        send_message=send_message,
+        send_photo=send_photo,
+        pin_chat_message=AsyncMock(),
+        session=SimpleNamespace(close=AsyncMock()),
+    )
 
 
 async def _start_client(backend_client: FakeBackendClient, *, bot: SimpleNamespace | None = None) -> TestClient:

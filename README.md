@@ -317,7 +317,8 @@ curl -X POST http://127.0.0.1:8092/api/v2/notifications/webhook \
     "markdown": "*任务完成*\\n[查看详情](https://example.com/task/123)",
     "image_url": "https://example.com/poster.jpg",
     "disable_web_page_preview": true,
-    "disable_notification": false
+    "disable_notification": false,
+    "pin": false
   }'
 ```
 
@@ -327,11 +328,13 @@ curl -X POST http://127.0.0.1:8092/api/v2/notifications/webhook \
 - `image_url` 可选，存在时优先发送 Telegram 图片消息
 - `disable_web_page_preview` 可选，默认 `true`
 - `disable_notification` 可选，默认 `false`
+- `pin` 可选，默认 `false`；为 `true` 时置顶实际投递的通知消息，置顶通知沿用 `disable_notification`
 
 注意事项：
 
 - 上游必须自己负责 Telegram `MarkdownV2` 转义和格式正确性
 - webhook 固定投递到 `telegram.admin_chat_id`
+- `pin=true` 要求 Bot 在目标会话具备置顶权限；私聊通常可用，群组或频道需要对应管理员权限
 - 如果 Telegram 投递失败，接口返回 `502 {"error":"telegram_delivery_failed"}`
 - 更容易单测
 - 不会一上来把 Telegram 交互和后端协议耦合死

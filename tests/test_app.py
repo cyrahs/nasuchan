@@ -36,6 +36,14 @@ class FakeBackendClient:
         self.closed = True
 
 
+def build_delivery_bot(*, message_id: int = 456, photo_message_id: int = 789) -> SimpleNamespace:
+    return SimpleNamespace(
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=message_id)),
+        send_photo=AsyncMock(return_value=SimpleNamespace(message_id=photo_message_id)),
+        pin_chat_message=AsyncMock(),
+    )
+
+
 @pytest.mark.asyncio
 async def test_create_runtime_wires_dispatcher_and_services() -> None:
     fake_bot = SimpleNamespace(send_message=AsyncMock(), send_photo=AsyncMock(), session=SimpleNamespace(close=AsyncMock()))
@@ -127,12 +135,13 @@ async def test_register_bot_commands_sets_expected_scopes() -> None:
 
 @pytest.mark.asyncio
 async def test_send_markdown_to_chat_uses_markdown_v2_and_default_flags() -> None:
-    bot = SimpleNamespace(send_message=AsyncMock(), send_photo=AsyncMock())
+    bot = build_delivery_bot()
 
     await send_markdown_to_chat(bot, 123456789, '*Hello*')
 
     bot.send_message.assert_awaited_once()
     bot.send_photo.assert_not_awaited()
+    bot.pin_chat_message.assert_not_awaited()
     assert bot.send_message.await_args.kwargs['disable_web_page_preview'] is True
     assert bot.send_message.await_args.kwargs['disable_notification'] is False
     assert bot.send_message.await_args.kwargs['parse_mode'] == 'MarkdownV2'
@@ -141,12 +150,13 @@ async def test_send_markdown_to_chat_uses_markdown_v2_and_default_flags() -> Non
 
 @pytest.mark.asyncio
 async def test_send_markdown_to_chat_uses_photo_caption_when_image_url_is_present() -> None:
-    bot = SimpleNamespace(send_message=AsyncMock(), send_photo=AsyncMock())
+    bot = build_delivery_bot()
 
     await send_markdown_to_chat(bot, 123456789, '*Hello*', image_url='https://example.com/poster.jpg')
 
     bot.send_photo.assert_awaited_once()
     bot.send_message.assert_not_awaited()
+    bot.pin_chat_message.assert_not_awaited()
     assert bot.send_photo.await_args.args == (123456789, 'https://example.com/poster.jpg')
     assert bot.send_photo.await_args.kwargs['caption'] == '*Hello*'
     assert bot.send_photo.await_args.kwargs['parse_mode'] == 'MarkdownV2'
@@ -155,7 +165,7 @@ async def test_send_markdown_to_chat_uses_photo_caption_when_image_url_is_presen
 
 @pytest.mark.asyncio
 async def test_send_markdown_to_chat_falls_back_to_photo_then_message_for_long_caption() -> None:
-    bot = SimpleNamespace(send_message=AsyncMock(), send_photo=AsyncMock())
+    bot = build_delivery_bot()
     markdown = 'x' * 1025
 
     await send_markdown_to_chat(
@@ -169,6 +179,7 @@ async def test_send_markdown_to_chat_falls_back_to_photo_then_message_for_long_c
 
     bot.send_photo.assert_awaited_once()
     bot.send_message.assert_awaited_once()
+    bot.pin_chat_message.assert_not_awaited()
     assert bot.send_photo.await_args.args == (123456789, 'https://example.com/poster.jpg')
     assert 'caption' not in bot.send_photo.await_args.kwargs
     assert bot.send_photo.await_args.kwargs['disable_notification'] is True
@@ -176,6 +187,57 @@ async def test_send_markdown_to_chat_falls_back_to_photo_then_message_for_long_c
     assert bot.send_message.await_args.kwargs['disable_web_page_preview'] is False
     assert bot.send_message.await_args.kwargs['disable_notification'] is True
     assert bot.send_message.await_args.kwargs['parse_mode'] == 'MarkdownV2'
+
+
+@pytest.mark.asyncio
+async def test_send_markdown_to_chat_pins_text_message_when_requested() -> None:
+    bot = build_delivery_bot(message_id=456)
+
+    await send_markdown_to_chat(bot, 123456789, '*Hello*', disable_notification=True, pin=True)
+
+    bot.pin_chat_message.assert_awaited_once_with(
+        chat_id=123456789,
+        message_id=456,
+        disable_notification=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_send_markdown_to_chat_pins_photo_message_when_requested() -> None:
+    bot = build_delivery_bot(photo_message_id=789)
+
+    await send_markdown_to_chat(
+        bot,
+        123456789,
+        '*Hello*',
+        image_url='https://example.com/poster.jpg',
+        pin=True,
+    )
+
+    bot.pin_chat_message.assert_awaited_once_with(
+        chat_id=123456789,
+        message_id=789,
+        disable_notification=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_send_markdown_to_chat_pins_long_caption_fallback_text_message() -> None:
+    bot = build_delivery_bot(message_id=456, photo_message_id=789)
+
+    await send_markdown_to_chat(
+        bot,
+        123456789,
+        'x' * 1025,
+        image_url='https://example.com/poster.jpg',
+        pin=True,
+    )
+
+    bot.pin_chat_message.assert_awaited_once_with(
+        chat_id=123456789,
+        message_id=456,
+        disable_notification=False,
+    )
 
 
 @pytest.mark.asyncio
