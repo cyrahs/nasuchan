@@ -72,16 +72,9 @@ class FavBackendClient:
         payload = await self._request_json('GET', _HANIME1_VIDEOS_PATH)
         return Hanime1VideoListResponse.model_validate(payload)
 
-    async def list_hanime1_seeds(self) -> list[Hanime1Seed]:
-        payload = await self._request_json('GET', _HANIME1_SEEDS_PATH)
-        return [Hanime1Seed.model_validate(item) for item in payload.get('items', [])]
-
     async def add_hanime1_seed(self, raw_seed: str) -> Hanime1Seed:
         payload = await self._request_json('POST', _HANIME1_SEEDS_PATH, json_body={'seed': raw_seed})
         return Hanime1Seed.model_validate(payload)
-
-    async def delete_hanime1_seed(self, video_id: str) -> None:
-        await self._request('DELETE', f'{_HANIME1_SEEDS_PATH}/{video_id}')
 
     async def _request_json(
         self,

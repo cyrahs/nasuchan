@@ -10,6 +10,7 @@ from nasuchan.clients import (
     AninamerStatusResponse,
     BackendApiError,
     FavBackendClient,
+    Hanime1Seed,
     JobRequest,
     JobSummary,
 )
@@ -126,6 +127,12 @@ class BackendCommandService:
             msg = 'Fav backend is not configured.'
             raise RuntimeError(msg)
         return await self.fav_client.create_job_request(target)
+
+    async def add_hanime1_scan_target(self, raw_target: str) -> Hanime1Seed:
+        if self.fav_client is None:
+            msg = 'Fav backend is not configured.'
+            raise RuntimeError(msg)
+        return await self.fav_client.add_hanime1_seed(raw_target)
 
     async def create_aninamer_scan_now_request(self) -> AninamerJobRequest:
         if self.aninamer_client is None:

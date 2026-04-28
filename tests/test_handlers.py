@@ -15,7 +15,12 @@ from nasuchan.bot.handlers.commands import (
     handle_run,
     handle_status,
 )
-from nasuchan.bot.handlers.hanime1 import handle_cancel, handle_hanime1_seed_delete, handle_hanime1_seed_input, handle_hanime1_seed_list
+from nasuchan.bot.handlers.hanime1 import (
+    build_seed_menu_keyboard,
+    handle_cancel,
+    handle_hanime1_seed_input,
+    handle_removed_hanime1_seed_action,
+)
 from nasuchan.clients import (
     AninamerJobRequest,
     AninamerStatusItem,
@@ -69,7 +74,6 @@ class FakeFavBackendClient:
             ),
         ]
         self.seeds = [Hanime1Seed(video_id='12488', title='屈辱', label='屈辱 {id-12488}')]
-        self.deleted_video_ids: list[str] = []
         self.added_raw_seeds: list[str] = []
 
     async def list_jobs(self) -> list[JobSummary]:
@@ -81,15 +85,9 @@ class FakeFavBackendClient:
     async def get_job_request(self, _request_id: int) -> JobRequest:
         return self.requests.pop(0)
 
-    async def list_hanime1_seeds(self) -> list[Hanime1Seed]:
-        return self.seeds
-
     async def add_hanime1_seed(self, raw_seed: str) -> Hanime1Seed:
         self.added_raw_seeds.append(raw_seed)
         return self.seeds[0]
-
-    async def delete_hanime1_seed(self, video_id: str) -> None:
-        self.deleted_video_ids.append(video_id)
 
 
 class FakeAninamerClient:
@@ -364,15 +362,13 @@ async def test_aninamer_apply_job_callback_creates_request_and_polls_until_termi
     assert 'Status: succeeded' in callback.message.edit_text.await_args.args[0]
 
 
-@pytest.mark.asyncio
-async def test_hanime1_seed_list_renders_seed_data() -> None:
-    message = build_message()
-    backend_client = FakeFavBackendClient()
+def test_hanime1_seed_menu_only_exposes_add_scan_target() -> None:
+    reply_markup = build_seed_menu_keyboard()
 
-    await handle_hanime1_seed_list(message, backend_client, logger=SimpleNamespace(exception=lambda *args, **kwargs: None))
-
-    message.answer.assert_awaited_once()
-    assert '12488' in message.answer.await_args.args[0]
+    button_texts = [button.text for row in reply_markup.inline_keyboard for button in row]
+    callback_data = [button.callback_data for row in reply_markup.inline_keyboard for button in row]
+    assert button_texts == ['Add scan target']
+    assert callback_data == ['seed:add']
 
 
 @pytest.mark.asyncio
@@ -386,13 +382,29 @@ async def test_hanime1_seed_add_uses_raw_input_and_clears_state() -> None:
     await handle_hanime1_seed_input(
         message,
         state,
-        backend_client,
+        build_service(fav=backend_client),
         logger=SimpleNamespace(exception=lambda *args, **kwargs: None),
     )
 
     assert backend_client.added_raw_seeds == ['屈辱 {id-12488}']
     assert state.value is None
-    assert 'Added Hanime1 seed' in message.answer.await_args.args[0]
+    assert 'Added Hanime1 scan target' in message.answer.await_args.args[0]
+
+
+@pytest.mark.parametrize('callback_data', ['seed:list', 'seed:delete', 'seed:page:1', 'seed:rm:12488'])
+@pytest.mark.asyncio
+async def test_removed_hanime1_seed_actions_answer_and_refresh_menu(callback_data: str) -> None:
+    callback = build_callback(callback_data)
+
+    await handle_removed_hanime1_seed_action(callback)
+
+    callback.answer.assert_awaited_once()
+    assert 'no longer available' in callback.answer.await_args.args[0]
+    callback.message.edit_text.assert_awaited_once()
+    assert callback.message.edit_text.await_args.args[0] == 'Choose a Hanime1 action:'
+    reply_markup = callback.message.edit_text.await_args.kwargs['reply_markup']
+    button_texts = [button.text for row in reply_markup.inline_keyboard for button in row]
+    assert button_texts == ['Add scan target']
 
 
 @pytest.mark.asyncio
@@ -405,19 +417,3 @@ async def test_cancel_clears_any_active_state() -> None:
 
     assert state.value is None
     assert message.answer.await_args.args[0] == 'Active bot state cleared.'
-
-
-@pytest.mark.asyncio
-async def test_hanime1_seed_delete_calls_backend_with_video_id() -> None:
-    callback = build_callback('seed:rm:12488')
-    backend_client = FakeFavBackendClient()
-
-    await handle_hanime1_seed_delete(
-        callback,
-        backend_client,
-        logger=SimpleNamespace(exception=lambda *args, **kwargs: None),
-        video_id='12488',
-    )
-
-    assert backend_client.deleted_video_ids == ['12488']
-    assert callback.message.answer.await_args.args[0] == 'Deleted Hanime1 seed: 12488'

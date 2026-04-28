@@ -84,6 +84,7 @@ uv run python -m nasuchan.api
   Aninamer 分支提供 `scan_now` 和 `apply_job`。
 - `/config`
   当前仍只保留 Hanime1 入口，不承载 Aninamer 的 runtime 操作。
+  Fav 侧 Hanime1 scan target 已迁移到数据库，当前公开 API 只支持新增 target，因此 Bot 只提供添加入口。
 
 ## Aninamer 通知回调
 
@@ -159,7 +160,7 @@ tests/         配置、client、handler、middleware、API 测试
 - `src/nasuchan/bot/delivery.py`
   Telegram MarkdownV2 消息投递的基础 helper。
 - `src/nasuchan/bot/handlers/hanime1.py`
-  一个较完整的 feature handler 示例，包含 FSM、分页和删除流程。
+  一个较完整的 feature handler 示例，包含 FSM 输入和旧回调兼容处理。
 - `src/nasuchan/api/app.py`
   本地 HTTP API 的鉴权、代理和 webhook 投递示例。
 
@@ -310,7 +311,7 @@ request_timeout_seconds = 15
 
 ```bash
 curl -X POST http://127.0.0.1:8092/api/v2/notifications/webhook \
-  -H 'Authorization: Bearer public-runtime-api-token' \
+  -H "Authorization: Bearer ${NASUCHAN_PUBLIC_API_TOKEN}" \
   -H 'Content-Type: application/json' \
   -d '{
     "markdown": "*任务完成*\\n[查看详情](https://example.com/task/123)",

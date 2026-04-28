@@ -15,8 +15,6 @@ from .renderers import (
     format_job_request_message,
     format_jobs_message,
     format_seed_added_message,
-    format_seed_deleted_message,
-    format_seed_page_message,
 )
 from .runtime_api import RuntimeApiService
 from .text import split_text_chunks
@@ -42,8 +40,6 @@ __all__ = [
     'format_job_request_message',
     'format_jobs_message',
     'format_seed_added_message',
-    'format_seed_deleted_message',
-    'format_seed_page_message',
     'poll_job_request',
     'split_text_chunks',
 ]

@@ -109,7 +109,7 @@ def create_runtime(
         )
     )
     if runtime_backend_client is not None:
-        dispatcher.include_router(build_hanime1_router(runtime_backend_client))
+        dispatcher.include_router(build_hanime1_router(command_service))
 
     return BotRuntime(
         bot=runtime_bot,

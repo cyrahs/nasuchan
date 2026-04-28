@@ -203,25 +203,8 @@ def format_aninamer_apply_page(items: list[AninamerStatusItem], *, page: int, pa
     return '\n'.join(lines)
 
 
-def format_seed_page_message(seeds: list[Hanime1Seed], *, page: int, page_size: int) -> str:
-    if not seeds:
-        return 'No Hanime1 seeds are configured.'
-    total_pages = ceil(len(seeds) / page_size)
-    start = page * page_size
-    end = start + page_size
-    page_items = seeds[start:end]
-    lines = [f'Hanime1 seeds (page {page + 1}/{total_pages}):']
-    for seed in page_items:
-        lines.append(f'- {seed.video_id} | {seed.label}')
-    return '\n'.join(lines)
-
-
 def format_seed_added_message(seed: Hanime1Seed) -> str:
-    return f'Added Hanime1 seed: {seed.video_id} | {seed.label}'
-
-
-def format_seed_deleted_message(video_id: str) -> str:
-    return f'Deleted Hanime1 seed: {video_id}'
+    return f'Added Hanime1 scan target: {seed.video_id} | {seed.label}'
 
 
 def _format_error_section(

@@ -162,17 +162,22 @@ async def test_list_hanime1_videos_returns_items_and_total() -> None:
 
 
 @pytest.mark.asyncio
-async def test_delete_hanime1_seed_accepts_no_content_response() -> None:
+async def test_add_hanime1_seed_posts_raw_seed() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == '/api/v2/hanime1/seeds/12488'
+        assert request.url.path == '/api/v2/hanime1/seeds'
         assert request.headers['Authorization'] == 'Bearer shared-token'
-        return httpx.Response(204)
+        assert request.content == b'{"seed":"Demo {id-12488}"}'
+        return httpx.Response(
+            200,
+            json={'video_id': '12488', 'title': 'Demo', 'label': 'Demo {id-12488}'},
+        )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url='https://fav.example.com') as http_client:
         backend_client = FavBackendClient(build_settings(), client=http_client)
-        response = await backend_client.delete_hanime1_seed('12488')
+        response = await backend_client.add_hanime1_seed('Demo {id-12488}')
 
-    assert response is None
+    assert response.video_id == '12488'
+    assert response.label == 'Demo {id-12488}'
 
 
 @pytest.mark.asyncio
