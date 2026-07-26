@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from aiogram.types import BufferedInputFile
+from aiohttp import FormData
 from aiohttp.test_utils import TestClient, TestServer
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import SendPhoto
@@ -19,7 +22,12 @@ def build_config() -> AppConfig:
         {
             'telegram': {'bot_token': '123456:telegram-bot-token', 'admin_chat_id': 123456789},
             'backend': {'fav': {'base_url': 'https://fav.example.com', 'token': 'shared-token', 'request_timeout_seconds': 15}},
-            'public_api': {'bind': '127.0.0.1', 'port': 8092, 'token': 'public-runtime-api-token'},
+            'public_api': {
+                'bind': '127.0.0.1',
+                'port': 8092,
+                'token': 'public-runtime-api-token',
+                'delivery_state_path': ':memory:',
+            },
             'polling': {
                 'control_poll_interval_seconds': 2,
                 'control_poll_timeout_seconds': 600,
@@ -34,7 +42,12 @@ def build_aninamer_only_config() -> AppConfig:
         {
             'telegram': {'bot_token': '123456:telegram-bot-token', 'admin_chat_id': 123456789},
             'backend': {'aninamer': {'base_url': 'https://aninamer.example.com', 'token': 'aninamer-token', 'request_timeout_seconds': 15}},
-            'public_api': {'bind': '127.0.0.1', 'port': 8092, 'token': 'public-runtime-api-token'},
+            'public_api': {
+                'bind': '127.0.0.1',
+                'port': 8092,
+                'token': 'public-runtime-api-token',
+                'delivery_state_path': ':memory:',
+            },
             'polling': {
                 'control_poll_interval_seconds': 2,
                 'control_poll_timeout_seconds': 600,
@@ -267,6 +280,11 @@ async def test_notifications_webhook_sends_markdown_v2_to_admin_chat() -> None:
             'markdown': '*Done*',
             'disable_web_page_preview': False,
             'disable_notification': True,
+            'notification_id': 41,
+            'dedupe_key': 'job_failed:bilibili:download',
+            'action': 'upsert',
+            'occurrence_count': 2,
+            'event_version': 3,
         },
         headers={'Authorization': 'Bearer public-runtime-api-token'},
     )
@@ -345,6 +363,155 @@ async def test_notifications_webhook_sends_photo_when_image_url_is_present() -> 
     assert bot.send_photo.await_args.kwargs['parse_mode'] == 'MarkdownV2'
     assert bot.send_photo.await_args.kwargs['disable_notification'] is True
     bot.pin_chat_message.assert_not_awaited()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_notifications_v3_webhook_uploads_photo_file_and_deduplicates() -> None:
+    backend_client = FakeBackendClient(
+        response=Hanime1VideoListResponse(
+            items=[Hanime1Video(video_id='1001', title='Title', downloaded=True, watch_url='https://example.com/watch/1001')],
+            total=1,
+        )
+    )
+    bot = build_bot()
+    client = await _start_client(backend_client, bot=bot)
+    form = FormData()
+    form.add_field(
+        'payload',
+        json.dumps(
+            {
+                'notification_id': 42,
+                'markdown': '*Done*',
+                'image_url': 'https://example.com/fallback.jpg',
+                'disable_notification': True,
+                'pin': True,
+                'dedupe_key': 'job_failed:bilibili:download',
+                'action': 'upsert',
+                'occurrence_count': 2,
+                'event_version': 3,
+            }
+        ),
+    )
+    form.add_field('image', b'image-data', filename='poster.png', content_type='image/png')
+
+    response = await client.post(
+        '/api/v3/notifications/webhook',
+        data=form,
+        headers={
+            'Authorization': 'Bearer public-runtime-api-token',
+            'Idempotency-Key': 'fav:42',
+        },
+    )
+
+    assert response.status == 200
+    assert await response.json() == {'status': 'delivered', 'message_id': 789, 'media_status': 'uploaded'}
+    bot.send_photo.assert_awaited_once()
+    bot.send_message.assert_not_awaited()
+    image = bot.send_photo.await_args.args[1]
+    assert isinstance(image, BufferedInputFile)
+    assert image.data == b'image-data'
+    assert image.filename == 'poster.png'
+    assert bot.send_photo.await_args.kwargs['caption'] == '*Done*'
+    assert bot.send_photo.await_args.kwargs['disable_notification'] is True
+    bot.pin_chat_message.assert_awaited_once_with(
+        chat_id=123456789,
+        message_id=789,
+        disable_notification=True,
+    )
+
+    duplicate_form = FormData()
+    duplicate_form.add_field(
+        'payload',
+        json.dumps(
+            {
+                'notification_id': 42,
+                'markdown': '*Done*',
+                'image_url': 'https://example.com/fallback.jpg',
+                'disable_notification': True,
+                'pin': True,
+            }
+        ),
+    )
+    duplicate_form.add_field('image', b'image-data', filename='poster.png', content_type='image/png')
+    duplicate_response = await client.post(
+        '/api/v3/notifications/webhook',
+        data=duplicate_form,
+        headers={
+            'Authorization': 'Bearer public-runtime-api-token',
+            'Idempotency-Key': 'fav:42',
+        },
+    )
+
+    assert duplicate_response.status == 200
+    assert await duplicate_response.json() == {'status': 'deduplicated', 'message_id': 789}
+    bot.send_photo.assert_awaited_once()
+    assert bot.pin_chat_message.await_count == 1
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_notifications_v3_webhook_rejects_oversized_photo_without_buffering_delivery() -> None:
+    backend_client = FakeBackendClient(
+        response=Hanime1VideoListResponse(
+            items=[Hanime1Video(video_id='1001', title='Title', downloaded=True, watch_url='https://example.com/watch/1001')],
+            total=1,
+        )
+    )
+    bot = build_bot()
+    client = await _start_client(backend_client, bot=bot)
+    form = FormData()
+    form.add_field('payload', json.dumps({'notification_id': 43, 'markdown': '*Done*'}))
+    form.add_field('image', b'x' * (10 * 1024 * 1024 + 1), filename='poster.png', content_type='image/png')
+
+    response = await client.post(
+        '/api/v3/notifications/webhook',
+        data=form,
+        headers={
+            'Authorization': 'Bearer public-runtime-api-token',
+            'Idempotency-Key': 'fav:43',
+        },
+    )
+
+    assert response.status == 413
+    assert await response.json() == {'error': 'attachment_too_large'}
+    bot.send_photo.assert_not_awaited()
+    bot.send_message.assert_not_awaited()
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_notifications_v3_webhook_returns_400_for_truncated_multipart() -> None:
+    backend_client = FakeBackendClient(
+        response=Hanime1VideoListResponse(
+            items=[Hanime1Video(video_id='1001', title='Title', downloaded=True, watch_url='https://example.com/watch/1001')],
+            total=1,
+        )
+    )
+    bot = build_bot()
+    client = await _start_client(backend_client, bot=bot)
+    boundary = 'broken-boundary'
+    body = (
+        f'--{boundary}\r\n'
+        'Content-Disposition: form-data; name="payload"\r\n'
+        'Content-Type: application/json\r\n\r\n'
+        '{"notification_id":44,"markdown":"*Done*"}\r\n'
+    )
+
+    response = await client.post(
+        '/api/v3/notifications/webhook',
+        data=body,
+        headers={
+            'Authorization': 'Bearer public-runtime-api-token',
+            'Idempotency-Key': 'fav:44',
+            'Content-Type': f'multipart/form-data; boundary={boundary}',
+        },
+    )
+
+    assert response.status == 400
+    assert await response.json() == {'error': 'invalid_payload'}
+    bot.send_photo.assert_not_awaited()
+    bot.send_message.assert_not_awaited()
     await client.close()
 
 

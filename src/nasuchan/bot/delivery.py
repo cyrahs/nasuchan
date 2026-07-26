@@ -14,7 +14,7 @@ import httpx
 from aiogram import Bot
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import FSInputFile
+from aiogram.types import FSInputFile, InputFile
 
 _TELEGRAM_CAPTION_LIMIT = 1024
 _TELEGRAM_MESSAGE_LIMIT = 4096
@@ -40,8 +40,19 @@ class _TemporaryImage:
     filename: str
 
 
+@dataclass(frozen=True, slots=True)
+class NotificationDeliveryResult:
+    message_id: int | None
+    media_status: str
+
+
 class _ImageDownloadError(RuntimeError):
     pass
+
+
+def _message_id(message: Any) -> int | None:
+    message_id = getattr(message, 'message_id', None)
+    return message_id if isinstance(message_id, int) else None
 
 
 async def send_markdown_to_chat(
@@ -50,12 +61,14 @@ async def send_markdown_to_chat(
     markdown: str,
     *,
     image_url: str = '',
+    image: InputFile | None = None,
     disable_web_page_preview: bool = True,
     disable_notification: bool = False,
     pin: bool = False,
-) -> None:
+) -> NotificationDeliveryResult:
     normalized_image_url = image_url.strip()
-    if not normalized_image_url:
+    has_media = image is not None or bool(normalized_image_url)
+    if not has_media:
         message = await _send_text_message(
             bot,
             chat_id,
@@ -69,13 +82,14 @@ async def send_markdown_to_chat(
                 message_id=message.message_id,
                 disable_notification=disable_notification,
             )
-        return
+        return NotificationDeliveryResult(message_id=_message_id(message), media_status='omitted')
 
     if len(markdown) <= _TELEGRAM_CAPTION_LIMIT:
-        message = await _send_photo_with_fallback(
+        message, media_status = await _send_preferred_photo(
             bot,
             chat_id,
-            normalized_image_url,
+            image=image,
+            image_url=normalized_image_url,
             caption=markdown,
             disable_notification=disable_notification,
         )
@@ -93,12 +107,13 @@ async def send_markdown_to_chat(
                 message_id=message.message_id,
                 disable_notification=disable_notification,
             )
-        return
+        return NotificationDeliveryResult(message_id=_message_id(message), media_status=media_status)
 
-    photo_message = await _send_photo_with_fallback(
+    photo_message, media_status = await _send_preferred_photo(
         bot,
         chat_id,
-        normalized_image_url,
+        image=image,
+        image_url=normalized_image_url,
         disable_notification=disable_notification,
     )
     message = (
@@ -124,6 +139,44 @@ async def send_markdown_to_chat(
             message_id=message.message_id,
             disable_notification=disable_notification,
         )
+    return NotificationDeliveryResult(message_id=_message_id(message), media_status=media_status)
+
+
+async def _send_preferred_photo(
+    bot: Bot,
+    chat_id: int,
+    *,
+    image: InputFile | None,
+    image_url: str,
+    caption: str | None = None,
+    disable_notification: bool,
+) -> tuple[Any | None, str]:
+    if image is not None:
+        try:
+            message = await _send_photo(
+                bot,
+                chat_id,
+                image,
+                caption=caption,
+                disable_notification=disable_notification,
+            )
+        except TelegramBadRequest:
+            _LOGGER.warning('Telegram rejected uploaded notification image; trying URL fallback', exc_info=True)
+        else:
+            return message, 'uploaded'
+
+    if image_url:
+        message = await _send_photo_with_fallback(
+            bot,
+            chat_id,
+            image_url,
+            caption=caption,
+            disable_notification=disable_notification,
+        )
+        if message is not None:
+            return message, 'url'
+
+    return None, 'omitted'
 
 
 async def _send_text_message(
@@ -221,7 +274,7 @@ async def _send_photo_with_fallback(
 async def _send_photo(
     bot: Bot,
     chat_id: int,
-    photo: str | FSInputFile,
+    photo: str | InputFile,
     *,
     caption: str | None = None,
     disable_notification: bool,

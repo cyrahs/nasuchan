@@ -43,6 +43,7 @@ cp config.toml.example config.toml
   - 或 `backend.aninamer.base_url`
   - 或 `backend.aninamer.token`
 - `public_api.token`（默认 combined 运行模式需要；仅单独运行 `nasuchan.bot` 时可省略）
+- `public_api.delivery_state_path`（默认 `./data/notification-delivery.sqlite3`，用于持久化通知幂等状态）
 
 `backend.fav` 和 `backend.aninamer` 都是可选的，运行时只会装配已配置的后端能力。
 如果只配置 `aninamer`，Bot 仍然可以运行，public API 仍然可以接收通知 webhook，但 `Hanime1` 相关能力不会注册。
@@ -67,6 +68,7 @@ uv run python -m nasuchan.api
 
 容器默认也会走 `python -m nasuchan`，在同一个进程里同时启动 bot polling 和 `nasuchan.api`。
 如果要让 Kubernetes Service 命中容器内的 public API，需要在部署使用的 `config.toml` 里把 `public_api.bind` 设成 `0.0.0.0`；本地开发默认仍然保持 `127.0.0.1`。
+容器部署应将持久卷挂载到 `/app/data`，避免重建容器后丢失通知幂等状态。
 
 ## Bot 命令行为
 
@@ -307,19 +309,23 @@ request_timeout_seconds = 15
 
 ## Notification Webhook
 
-通知改为 push 模式，Nasuchan 不再主动轮询后端通知列表。上游直接调用本地 HTTP API：
+通知改为 push 模式，Nasuchan 不再主动轮询后端通知列表。`/api/v2/notifications/webhook`
+保留原有 JSON 协议；支持原图上传和幂等投递的新客户端应使用
+`/api/v3/notifications/webhook`：
 
 ```bash
-curl -X POST http://127.0.0.1:8092/api/v2/notifications/webhook \
+curl -X POST http://127.0.0.1:8092/api/v3/notifications/webhook \
   -H "Authorization: Bearer ${NASUCHAN_PUBLIC_API_TOKEN}" \
-  -H 'Content-Type: application/json' \
-  -d '{
+  -H 'Idempotency-Key: fav:42' \
+  -F 'payload={
+    "notification_id": 42,
     "markdown": "*任务完成*\\n[查看详情](https://example.com/task/123)",
     "image_url": "https://example.com/poster.jpg",
     "disable_web_page_preview": true,
     "disable_notification": false,
     "pin": false
-  }'
+  };type=application/json' \
+  -F 'image=@/path/to/poster.jpg;type=image/jpeg'
 ```
 
 请求规则：
@@ -329,6 +335,9 @@ curl -X POST http://127.0.0.1:8092/api/v2/notifications/webhook \
 - `disable_web_page_preview` 可选，默认 `true`
 - `disable_notification` 可选，默认 `false`
 - `pin` 可选，默认 `false`；为 `true` 时置顶实际投递的通知消息，置顶通知沿用 `disable_notification`
+- v3 必须提供稳定的 `Idempotency-Key` 和正整数 `notification_id`
+- v3 接受 JSON，或使用 `multipart/form-data` 的 `payload` 和 `image` 字段上传原图
+- v3 上传图片最大 10 MiB；上传图片被 Telegram 拒绝时依次降级为 `image_url` 和纯文本
 
 注意事项：
 

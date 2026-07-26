@@ -83,6 +83,7 @@ class PublicApiSettings(BaseModel):
     bind: str = '127.0.0.1'
     port: int = 8092
     token: str
+    delivery_state_path: Path = Path('./data/notification-delivery.sqlite3')
 
     @field_validator('bind')
     @classmethod
@@ -109,6 +110,14 @@ class PublicApiSettings(BaseModel):
             msg = 'public_api.token cannot be empty'
             raise ValueError(msg)
         return normalized
+
+    @field_validator('delivery_state_path')
+    @classmethod
+    def validate_delivery_state_path(cls, value: Path) -> Path:
+        if not str(value).strip():
+            msg = 'public_api.delivery_state_path cannot be empty'
+            raise ValueError(msg)
+        return value
 
 
 class PollingSettings(BaseModel):

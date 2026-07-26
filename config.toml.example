@@ -16,6 +16,7 @@ request_timeout_seconds = 15
 bind = '127.0.0.1'
 port = 8092
 token = 'public-runtime-api-token'
+delivery_state_path = './data/notification-delivery.sqlite3'
 
 [polling]
 control_poll_interval_seconds = 2

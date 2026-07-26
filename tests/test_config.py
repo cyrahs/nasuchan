@@ -97,6 +97,7 @@ def test_load_config_with_public_api_section(tmp_path: Path) -> None:
     assert config.public_api is not None
     assert config.public_api.bind == '127.0.0.1'
     assert config.public_api.port == 8092
+    assert config.public_api.delivery_state_path == Path('data/notification-delivery.sqlite3')
 
 
 @pytest.mark.parametrize(
