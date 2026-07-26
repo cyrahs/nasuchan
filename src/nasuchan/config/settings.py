@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import tomllib
 
-from pydantic import AnyHttpUrl, BaseModel, Field, TypeAdapter, ValidationError, field_validator, model_validator
+from psycopg.conninfo import make_conninfo
+from pydantic import AnyHttpUrl, BaseModel, Field, SecretStr, TypeAdapter, ValidationError, field_validator, model_validator
 
 _HTTP_URL_ADAPTER = TypeAdapter(AnyHttpUrl)
 _DEFAULT_CONFIG_PATH = Path('./config.toml')
@@ -79,11 +80,62 @@ class BackendSettings(BaseModel):
     aninamer: AninamerBackendSettings | None = None
 
 
+class DatabaseSettings(BaseModel):
+    host: str
+    port: int = 5432
+    dbname: str
+    user: str
+    password: SecretStr
+    connect_timeout_seconds: int = 5
+
+    @field_validator('host', 'dbname', 'user')
+    @classmethod
+    def validate_non_empty_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            msg = 'database host, dbname, and user cannot be empty'
+            raise ValueError(msg)
+        return normalized
+
+    @field_validator('port')
+    @classmethod
+    def validate_port(cls, value: int) -> int:
+        if not (1 <= value <= 65535):
+            msg = 'database.port must be between 1 and 65535'
+            raise ValueError(msg)
+        return value
+
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, value: SecretStr) -> SecretStr:
+        if not value.get_secret_value():
+            msg = 'database.password cannot be empty'
+            raise ValueError(msg)
+        return value
+
+    @field_validator('connect_timeout_seconds')
+    @classmethod
+    def validate_connect_timeout_seconds(cls, value: int) -> int:
+        if value <= 0:
+            msg = 'database.connect_timeout_seconds must be greater than 0'
+            raise ValueError(msg)
+        return value
+
+    def conninfo(self) -> str:
+        return make_conninfo(
+            host=self.host,
+            port=self.port,
+            dbname=self.dbname,
+            user=self.user,
+            password=self.password.get_secret_value(),
+            connect_timeout=self.connect_timeout_seconds,
+        )
+
+
 class PublicApiSettings(BaseModel):
     bind: str = '127.0.0.1'
     port: int = 8092
     token: str
-    delivery_state_path: Path = Path('./data/notification-delivery.sqlite3')
 
     @field_validator('bind')
     @classmethod
@@ -110,14 +162,6 @@ class PublicApiSettings(BaseModel):
             msg = 'public_api.token cannot be empty'
             raise ValueError(msg)
         return normalized
-
-    @field_validator('delivery_state_path')
-    @classmethod
-    def validate_delivery_state_path(cls, value: Path) -> Path:
-        if not str(value).strip():
-            msg = 'public_api.delivery_state_path cannot be empty'
-            raise ValueError(msg)
-        return value
 
 
 class PollingSettings(BaseModel):
@@ -160,6 +204,7 @@ class LoggingSettings(BaseModel):
 class AppConfig(BaseModel):
     telegram: TelegramSettings
     backend: BackendSettings
+    database: DatabaseSettings | None = None
     public_api: PublicApiSettings | None = None
     polling: PollingSettings = Field(default_factory=PollingSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)

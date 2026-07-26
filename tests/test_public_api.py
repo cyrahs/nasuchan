@@ -12,9 +12,19 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import SendPhoto
 
 from nasuchan.api import create_app
+from nasuchan.api.delivery_store import DeliveryClaim, DeliveryClaimStatus
 import nasuchan.bot.delivery as delivery_module
 from nasuchan.clients import BackendApiTransportError, Hanime1Video, Hanime1VideoListResponse
 from nasuchan.config.settings import AppConfig
+
+_DATABASE_CONFIG = {
+    'host': 'postgresql.example.com',
+    'port': 5432,
+    'dbname': 'nasuchan',
+    'user': 'nasuchan',
+    'password': 'database-password',
+    'connect_timeout_seconds': 5,
+}
 
 
 def build_config() -> AppConfig:
@@ -22,11 +32,11 @@ def build_config() -> AppConfig:
         {
             'telegram': {'bot_token': '123456:telegram-bot-token', 'admin_chat_id': 123456789},
             'backend': {'fav': {'base_url': 'https://fav.example.com', 'token': 'shared-token', 'request_timeout_seconds': 15}},
+            'database': _DATABASE_CONFIG,
             'public_api': {
                 'bind': '127.0.0.1',
                 'port': 8092,
                 'token': 'public-runtime-api-token',
-                'delivery_state_path': ':memory:',
             },
             'polling': {
                 'control_poll_interval_seconds': 2,
@@ -42,11 +52,11 @@ def build_aninamer_only_config() -> AppConfig:
         {
             'telegram': {'bot_token': '123456:telegram-bot-token', 'admin_chat_id': 123456789},
             'backend': {'aninamer': {'base_url': 'https://aninamer.example.com', 'token': 'aninamer-token', 'request_timeout_seconds': 15}},
+            'database': _DATABASE_CONFIG,
             'public_api': {
                 'bind': '127.0.0.1',
                 'port': 8092,
                 'token': 'public-runtime-api-token',
-                'delivery_state_path': ':memory:',
             },
             'polling': {
                 'control_poll_interval_seconds': 2,
@@ -73,6 +83,33 @@ class FakeBackendClient:
         self.closed = True
 
 
+class FakeDeliveryStore:
+    def __init__(self) -> None:
+        self._states: dict[str, tuple[str, int | None]] = {}
+
+    async def open(self) -> None:
+        return
+
+    async def claim(self, idempotency_key: str) -> DeliveryClaim:
+        existing = self._states.get(idempotency_key)
+        if existing is None:
+            self._states[idempotency_key] = ('processing', None)
+            return DeliveryClaim(DeliveryClaimStatus.ACQUIRED)
+        status, message_id = existing
+        if status == 'delivered':
+            return DeliveryClaim(DeliveryClaimStatus.DELIVERED, message_id=message_id)
+        return DeliveryClaim(DeliveryClaimStatus.PROCESSING)
+
+    async def mark_delivered(self, idempotency_key: str, *, message_id: int | None) -> None:
+        self._states[idempotency_key] = ('delivered', message_id)
+
+    async def release(self, idempotency_key: str) -> None:
+        self._states.pop(idempotency_key, None)
+
+    async def aclose(self) -> None:
+        return
+
+
 def telegram_bad_request(message: str = 'bad image') -> TelegramBadRequest:
     return TelegramBadRequest(method=SendPhoto(chat_id=123456789, photo='https://example.com/poster.jpg'), message=message)
 
@@ -96,9 +133,19 @@ async def test_create_app_requires_public_api_config() -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_app_requires_database_config() -> None:
+    raw_config = build_config().model_dump()
+    raw_config['database'] = None
+    config = AppConfig.model_validate(raw_config)
+
+    with pytest.raises(ValueError, match='database configuration is required'):
+        create_app(config)
+
+
+@pytest.mark.asyncio
 async def test_create_app_without_fav_backend_still_allows_notification_webhook() -> None:
     bot = build_bot()
-    app = create_app(build_aninamer_only_config(), bot=bot)
+    app = create_app(build_aninamer_only_config(), bot=bot, delivery_store=FakeDeliveryStore())
     server = TestServer(app)
     client = TestClient(server)
     await client.start_server()
@@ -685,7 +732,12 @@ def build_bot(*, error: Exception | None = None, message_id: int = 456, photo_me
 
 
 async def _start_client(backend_client: FakeBackendClient, *, bot: SimpleNamespace | None = None) -> TestClient:
-    app = create_app(build_config(), backend_client=backend_client, bot=bot)
+    app = create_app(
+        build_config(),
+        backend_client=backend_client,
+        bot=bot,
+        delivery_store=FakeDeliveryStore(),
+    )
     server = TestServer(app)
     client = TestClient(server)
     await client.start_server()

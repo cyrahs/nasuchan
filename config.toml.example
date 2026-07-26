@@ -16,7 +16,14 @@ request_timeout_seconds = 15
 bind = '127.0.0.1'
 port = 8092
 token = 'public-runtime-api-token'
-delivery_state_path = './data/notification-delivery.sqlite3'
+
+[database]
+host = 'postgresql.postgresql.svc.cluster.local'
+port = 5432
+dbname = 'nasuchan'
+user = 'nasuchan'
+password = 'replace-with-database-password'
+connect_timeout_seconds = 5
 
 [polling]
 control_poll_interval_seconds = 2

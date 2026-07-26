@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt, StrictStr, Va
 
 from nasuchan.bot.delivery import send_markdown_to_chat
 from nasuchan.clients import BackendApiError, FavBackendClient
-from nasuchan.config import AppConfig, PublicApiSettings
+from nasuchan.config import AppConfig, DatabaseSettings, PublicApiSettings
 from nasuchan.services import RuntimeApiService
 
 from .delivery_store import DeliveryClaimStatus, NotificationDeliveryStore
@@ -122,6 +122,9 @@ class PublicApiRuntime:
     manage_resources: bool = True
     manage_delivery_store: bool = True
 
+    async def open(self) -> None:
+        await self.delivery_store.open()
+
     async def aclose(self) -> None:
         if self.manage_delivery_store:
             await self.delivery_store.aclose()
@@ -163,7 +166,10 @@ def create_app(
             )
             runtime_backend_client = FavBackendClient(fav_backend, client=runtime_http_client)
     runtime_service = RuntimeApiService(runtime_backend_client) if runtime_backend_client is not None else None
-    runtime_delivery_store = delivery_store or NotificationDeliveryStore(public_api.delivery_state_path)
+    runtime_delivery_store = delivery_store
+    if runtime_delivery_store is None:
+        database = _require_database_config(config)
+        runtime_delivery_store = NotificationDeliveryStore(database.conninfo())
 
     app = web.Application(client_max_size=_MAX_WEBHOOK_REQUEST_BYTES)
     app[_PUBLIC_API_CONFIG_KEY] = public_api
@@ -181,6 +187,7 @@ def create_app(
         app.router.add_get(_HANIME1_VIDEOS_PATH, handle_hanime1_videos)
     app.router.add_post(_NOTIFICATIONS_WEBHOOK_V2_PATH, handle_notifications_webhook)
     app.router.add_post(_NOTIFICATIONS_WEBHOOK_V3_PATH, handle_notifications_webhook_v3)
+    app.on_startup.append(_open_runtime)
     app.on_cleanup.append(_close_runtime)
     return app
 
@@ -349,6 +356,13 @@ def _require_public_api_config(config: AppConfig) -> PublicApiSettings:
     return config.public_api
 
 
+def _require_database_config(config: AppConfig) -> DatabaseSettings:
+    if config.database is None:
+        msg = 'database configuration is required to run the public HTTP API'
+        raise ValueError(msg)
+    return config.database
+
+
 def _validate_v2_webhook_payload(raw_payload: object) -> NotificationWebhookRequest | None:
     if not isinstance(raw_payload, dict):
         return None
@@ -443,3 +457,8 @@ def _json_error(*, status: int, error: str, headers: dict[str, str] | None = Non
 
 async def _close_runtime(app: web.Application) -> None:
     await app[_RUNTIME_KEY].aclose()
+
+
+async def _open_runtime(app: web.Application) -> None:
+    await app[_RUNTIME_KEY].open()
+    _LOGGER.info('PostgreSQL notification delivery store initialized')

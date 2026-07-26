@@ -43,7 +43,7 @@ cp config.toml.example config.toml
   - 或 `backend.aninamer.base_url`
   - 或 `backend.aninamer.token`
 - `public_api.token`（默认 combined 运行模式需要；仅单独运行 `nasuchan.bot` 时可省略）
-- `public_api.delivery_state_path`（默认 `./data/notification-delivery.sqlite3`，用于持久化通知幂等状态）
+- `database`（combined/API 模式需要，用于持久化通知幂等状态）
 
 `backend.fav` 和 `backend.aninamer` 都是可选的，运行时只会装配已配置的后端能力。
 如果只配置 `aninamer`，Bot 仍然可以运行，public API 仍然可以接收通知 webhook，但 `Hanime1` 相关能力不会注册。
@@ -68,7 +68,7 @@ uv run python -m nasuchan.api
 
 容器默认也会走 `python -m nasuchan`，在同一个进程里同时启动 bot polling 和 `nasuchan.api`。
 如果要让 Kubernetes Service 命中容器内的 public API，需要在部署使用的 `config.toml` 里把 `public_api.bind` 设成 `0.0.0.0`；本地开发默认仍然保持 `127.0.0.1`。
-容器部署应将持久卷挂载到 `/app/data`，避免重建容器后丢失通知幂等状态。
+通知幂等状态存储在 PostgreSQL，Pod 重建或多副本部署会共享相同的投递状态。
 
 ## Bot 命令行为
 

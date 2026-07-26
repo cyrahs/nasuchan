@@ -57,6 +57,14 @@ bind = '127.0.0.1'
 port = 8092
 token = 'public-runtime-api-token'
 
+[database]
+host = 'postgresql.example.com'
+port = 5432
+dbname = 'nasuchan'
+user = 'nasuchan'
+password = 'database-password'
+connect_timeout_seconds = 5
+
 [polling]
 control_poll_interval_seconds = 2
 control_poll_timeout_seconds = 600
@@ -97,7 +105,12 @@ def test_load_config_with_public_api_section(tmp_path: Path) -> None:
     assert config.public_api is not None
     assert config.public_api.bind == '127.0.0.1'
     assert config.public_api.port == 8092
-    assert config.public_api.delivery_state_path == Path('data/notification-delivery.sqlite3')
+    assert config.database is not None
+    assert config.database.host == 'postgresql.example.com'
+    assert config.database.dbname == 'nasuchan'
+    assert config.database.user == 'nasuchan'
+    assert config.database.password.get_secret_value() == 'database-password'
+    assert 'database-password' not in repr(config.database)
 
 
 @pytest.mark.parametrize(
@@ -125,6 +138,22 @@ def test_invalid_config_values_raise_value_error(tmp_path: Path, needle: str, re
     ],
 )
 def test_invalid_public_api_values_raise_value_error(tmp_path: Path, needle: str, replacement: str) -> None:
+    config_path = write_config(tmp_path, _VALID_CONFIG_WITH_PUBLIC_API.replace(needle, replacement, 1))
+
+    with pytest.raises(ValueError, match='Invalid config file'):
+        load_config(config_path)
+
+
+@pytest.mark.parametrize(
+    ('needle', 'replacement'),
+    [
+        ("host = 'postgresql.example.com'", "host = ''"),
+        ('port = 5432', 'port = 70000'),
+        ("password = 'database-password'", "password = ''"),
+        ('connect_timeout_seconds = 5', 'connect_timeout_seconds = 0'),
+    ],
+)
+def test_invalid_database_values_raise_value_error(tmp_path: Path, needle: str, replacement: str) -> None:
     config_path = write_config(tmp_path, _VALID_CONFIG_WITH_PUBLIC_API.replace(needle, replacement, 1))
 
     with pytest.raises(ValueError, match='Invalid config file'):

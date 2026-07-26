@@ -30,9 +30,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 WORKDIR /app
 
 RUN groupadd --system nasuchan \
-    && useradd --system --gid nasuchan --no-create-home --home-dir /nonexistent nasuchan \
-    && mkdir --parents /app/data \
-    && chown nasuchan:nasuchan /app/data
+    && useradd --system --gid nasuchan --no-create-home --home-dir /nonexistent nasuchan
 
 COPY --from=builder /app/.venv /app/.venv
 COPY config.toml.example /app/config.toml.example
@@ -40,5 +38,4 @@ COPY config.toml.example /app/config.toml.example
 USER nasuchan
 
 # Mount your runtime config to /app/config.toml when starting the container.
-VOLUME ["/app/data"]
 CMD ["python", "-m", "nasuchan"]

@@ -16,6 +16,14 @@ def build_config(*, include_public_api: bool = True) -> AppConfig:
     raw_config = {
         'telegram': {'bot_token': '123456:telegram-bot-token', 'admin_chat_id': 123456789},
         'backend': {'fav': {'base_url': 'https://fav.example.com', 'token': 'shared-token', 'request_timeout_seconds': 15}},
+        'database': {
+            'host': 'postgresql.example.com',
+            'port': 5432,
+            'dbname': 'nasuchan',
+            'user': 'nasuchan',
+            'password': 'database-password',
+            'connect_timeout_seconds': 5,
+        },
         'polling': {
             'control_poll_interval_seconds': 2,
             'control_poll_timeout_seconds': 600,
