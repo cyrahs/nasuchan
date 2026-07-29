@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 import httpx
+from pydantic import ValidationError
 
 from nasuchan.config import FavBackendSettings
 
@@ -25,9 +26,11 @@ from .models import (
     HealthStatus,
     JobRequest,
     JobSummary,
+    ReadinessStatus,
 )
 
 _HEALTH_PATH = '/healthz'
+_READINESS_PATH = '/readyz'
 _JOBS_PATH = '/api/v2/jobs'
 _JOB_REQUESTS_PATH = '/api/v2/job-requests'
 _HANIME1_VIDEOS_PATH = '/api/v2/hanime1/videos'
@@ -51,6 +54,23 @@ class FavBackendClient:
     async def health(self) -> HealthStatus:
         payload = await self._request_json('GET', _HEALTH_PATH, authenticated=False)
         return HealthStatus.model_validate(payload)
+
+    async def readiness(self) -> ReadinessStatus:
+        response = await self._request(
+            'GET',
+            _READINESS_PATH,
+            authenticated=False,
+            allowed_status_codes={503},
+        )
+        try:
+            status = ReadinessStatus.model_validate(self._parse_json_object(response, _READINESS_PATH))
+        except ValidationError as exc:
+            msg = 'Backend endpoint /readyz returned an invalid readiness payload'
+            raise self._unexpected_response(_READINESS_PATH, response, msg) from exc
+        if (response.status_code == 503) != (status.status == 'degraded'):
+            msg = 'Backend endpoint /readyz returned an inconsistent status'
+            raise self._unexpected_response(_READINESS_PATH, response, msg)
+        return status
 
     async def list_jobs(self) -> list[JobSummary]:
         payload = await self._request_json('GET', _JOBS_PATH)
@@ -84,6 +104,7 @@ class FavBackendClient:
         authenticated: bool = True,
         params: Mapping[str, str] | None = None,
         json_body: dict[str, Any] | None = None,
+        allowed_status_codes: set[int] | None = None,
     ) -> dict[str, Any]:
         response = await self._request(
             method,
@@ -91,6 +112,7 @@ class FavBackendClient:
             authenticated=authenticated,
             params=params,
             json_body=json_body,
+            allowed_status_codes=allowed_status_codes,
         )
         return self._parse_json_object(response, path)
 
@@ -103,6 +125,7 @@ class FavBackendClient:
         params: Mapping[str, str] | None = None,
         json_body: dict[str, Any] | None = None,
         extra_headers: Mapping[str, str] | None = None,
+        allowed_status_codes: set[int] | None = None,
     ) -> httpx.Response:
         headers = {'Accept': 'application/json'}
         if extra_headers is not None:
@@ -120,7 +143,7 @@ class FavBackendClient:
         except httpx.HTTPError as exc:
             msg = f'Failed to reach backend endpoint {path}'
             raise BackendApiTransportError(msg, path=path) from exc
-        if response.status_code >= 400:
+        if response.status_code >= 400 and response.status_code not in (allowed_status_codes or ()):
             self._raise_for_status(path, response)
         return response
 
@@ -129,11 +152,20 @@ class FavBackendClient:
             payload = response.json()
         except ValueError as exc:
             msg = f'Backend endpoint {path} returned invalid JSON'
-            raise BackendApiUnexpectedResponseError(msg, status_code=response.status_code, path=path, response_body=response.text) from exc
+            raise self._unexpected_response(path, response, msg) from exc
         if not isinstance(payload, dict):
             msg = f'Backend endpoint {path} returned a non-object JSON payload'
-            raise BackendApiUnexpectedResponseError(msg, status_code=response.status_code, path=path, response_body=response.text)
+            raise self._unexpected_response(path, response, msg)
         return payload
+
+    @staticmethod
+    def _unexpected_response(path: str, response: httpx.Response, message: str) -> BackendApiUnexpectedResponseError:
+        return BackendApiUnexpectedResponseError(
+            message,
+            status_code=response.status_code,
+            path=path,
+            response_body=response.text,
+        )
 
     def _raise_for_status(self, path: str, response: httpx.Response) -> None:
         error_code = self._extract_error_code(response)

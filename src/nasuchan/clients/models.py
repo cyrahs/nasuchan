@@ -17,6 +17,19 @@ class HealthStatus(BaseModel):
     generated_at: datetime
 
 
+class ComponentReadiness(BaseModel):
+    status: Literal['ok', 'degraded', 'skipped']
+    code: str
+    message: str
+    sampled_targets: int
+
+
+class ReadinessStatus(BaseModel):
+    status: Literal['ok', 'degraded']
+    generated_at: datetime
+    checks: dict[str, ComponentReadiness]
+
+
 class JobSummary(BaseModel):
     key: str
     name: str

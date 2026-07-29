@@ -11,6 +11,7 @@ from nasuchan.clients import (
     HealthStatus,
     JobRequest,
     JobSummary,
+    ReadinessStatus,
 )
 
 from .backends import AggregatedJobsSnapshot, AggregatedStatusSnapshot, BackendHealthSnapshot
@@ -88,14 +89,29 @@ def format_aggregated_status_message(
     *,
     error_lookup: Callable[[Exception], str] | None = None,
 ) -> str:
-    if snapshot.fav_job_count is None and snapshot.aninamer_status is None and not snapshot.section_errors:
+    if (
+        snapshot.fav_job_count is None
+        and snapshot.fav_readiness is None
+        and snapshot.aninamer_status is None
+        and not snapshot.section_errors
+    ):
         return 'No backends are currently configured.'
 
     sections: list[str] = []
-    if snapshot.fav_job_count is not None:
-        sections.append(format_fav_runtime_status_message(snapshot.fav_job_count))
-    elif 'fav' in snapshot.section_errors:
-        sections.append(_format_error_section('FAV', snapshot.section_errors['fav'], error_lookup=error_lookup))
+    if (
+        snapshot.fav_job_count is not None
+        or snapshot.fav_readiness is not None
+        or {'fav', 'fav_readiness'} & snapshot.section_errors.keys()
+    ):
+        sections.append(
+            format_fav_runtime_status_message(
+                snapshot.fav_job_count,
+                readiness=snapshot.fav_readiness,
+                jobs_error=snapshot.section_errors.get('fav'),
+                readiness_error=snapshot.section_errors.get('fav_readiness'),
+                error_lookup=error_lookup,
+            )
+        )
 
     if snapshot.aninamer_status is not None:
         sections.append(format_aninamer_runtime_status_message(snapshot.aninamer_status))
@@ -162,12 +178,29 @@ def format_aninamer_status_message(status: AninamerStatusResponse) -> str:
     return '\n'.join(lines)
 
 
-def format_fav_runtime_status_message(job_count: int) -> str:
-    lines = [
-        'FAV',
-        f'Configured jobs: {job_count}',
-        'Running jobs: unavailable from current Fav API.',
-    ]
+def format_fav_runtime_status_message(
+    job_count: int | None,
+    *,
+    readiness: ReadinessStatus | None = None,
+    jobs_error: Exception | None = None,
+    readiness_error: Exception | None = None,
+    error_lookup: Callable[[Exception], str] | None = None,
+) -> str:
+    lines = ['FAV']
+    if readiness is not None:
+        lines.append(f'Readiness: {readiness.status}')
+        for name, check in sorted(readiness.checks.items()):
+            lines.append(f'- {name}: {check.status} ({check.code}) | {check.message}')
+    elif readiness_error is not None:
+        error_text = error_lookup(readiness_error) if error_lookup is not None else str(readiness_error)
+        lines.append(f'Readiness: error | {error_text}')
+
+    if job_count is not None:
+        lines.append(f'Configured jobs: {job_count}')
+        lines.append('Running jobs: unavailable from current Fav API.')
+    elif jobs_error is not None:
+        error_text = error_lookup(jobs_error) if error_lookup is not None else str(jobs_error)
+        lines.append(f'Jobs: error | {error_text}')
     return '\n'.join(lines)
 
 
@@ -223,8 +256,7 @@ def _format_status_items(title: str, items: list[AninamerStatusItem]) -> list[st
     lines = [f'{title}:']
     for item in items:
         lines.append(
-            f'- #{item.job_id} {item.series_name} | {item.status} | '
-            f'{item.watch_root_key} | updated_at={item.updated_at.isoformat()}'
+            f'- #{item.job_id} {item.series_name} | {item.status} | {item.watch_root_key} | updated_at={item.updated_at.isoformat()}'
         )
     return lines
 

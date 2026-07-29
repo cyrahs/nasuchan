@@ -9,10 +9,12 @@ from nasuchan.clients import (
     AninamerStatusItem,
     AninamerStatusResponse,
     BackendApiError,
+    ComponentReadiness,
     FavBackendClient,
     Hanime1Seed,
     JobRequest,
     JobSummary,
+    ReadinessStatus,
 )
 
 
@@ -21,6 +23,7 @@ class BackendHealthSnapshot:
     backend: str
     status: str | None = None
     generated_at: datetime | None = None
+    checks: dict[str, ComponentReadiness] = field(default_factory=dict)
     error: BackendApiError | None = None
 
 
@@ -34,6 +37,7 @@ class AggregatedJobsSnapshot:
 @dataclass(frozen=True, slots=True)
 class AggregatedStatusSnapshot:
     fav_job_count: int | None = None
+    fav_readiness: ReadinessStatus | None = None
     aninamer_status: AninamerStatusResponse | None = None
     section_errors: dict[str, BackendApiError] = field(default_factory=dict)
 
@@ -96,6 +100,7 @@ class BackendCommandService:
     async def collect_status(self) -> AggregatedStatusSnapshot:
         section_errors: dict[str, BackendApiError] = {}
         fav_job_count: int | None = None
+        fav_readiness: ReadinessStatus | None = None
         aninamer_status: AninamerStatusResponse | None = None
 
         if self.fav_client is not None:
@@ -103,6 +108,10 @@ class BackendCommandService:
                 fav_job_count = len(await self.fav_client.list_jobs())
             except BackendApiError as exc:
                 section_errors['fav'] = exc
+            try:
+                fav_readiness = await self.fav_client.readiness()
+            except BackendApiError as exc:
+                section_errors['fav_readiness'] = exc
 
         if self.aninamer_client is not None:
             try:
@@ -112,6 +121,7 @@ class BackendCommandService:
 
         return AggregatedStatusSnapshot(
             fav_job_count=fav_job_count,
+            fav_readiness=fav_readiness,
             aninamer_status=aninamer_status,
             section_errors=section_errors,
         )
@@ -156,13 +166,14 @@ class BackendCommandService:
     async def _fav_health_snapshot(self) -> BackendHealthSnapshot:
         assert self.fav_client is not None
         try:
-            status = await self.fav_client.health()
+            status = await self.fav_client.readiness()
         except BackendApiError as exc:
             return BackendHealthSnapshot(backend='fav', error=exc)
         return BackendHealthSnapshot(
             backend='fav',
             status=status.status,
             generated_at=status.generated_at,
+            checks=status.checks,
         )
 
     async def _aninamer_health_snapshot(self) -> BackendHealthSnapshot:

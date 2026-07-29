@@ -150,11 +150,15 @@ async def perform_startup_healthcheck(command_service: BackendCommandService, lo
                 build_backend_user_message(snapshot.error),
             )
             continue
-        logger.info(
-            'Startup backend health check succeeded for backend=%s status=%s',
-            snapshot.backend,
-            snapshot.status,
-        )
+        if snapshot.status != 'ok':
+            logger.warning(
+                'Startup backend health check degraded for backend=%s status=%s checks=%s',
+                snapshot.backend,
+                snapshot.status,
+                snapshot.checks,
+            )
+            continue
+        logger.info('Startup backend health check succeeded for backend=%s status=%s', snapshot.backend, snapshot.status)
 
 
 async def register_bot_commands(bot: Bot, admin_chat_id: int, logger: logging.Logger) -> None:

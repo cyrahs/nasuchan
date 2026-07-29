@@ -14,6 +14,7 @@ from nasuchan.clients import (
     BackendApiUnprocessableError,
     BackendApiUnexpectedResponseError,
     FavBackendClient,
+    ReadinessStatus,
 )
 from nasuchan.config.settings import AninamerBackendSettings, FavBackendSettings
 
@@ -46,6 +47,54 @@ async def test_health_omits_authorization_header() -> None:
         status = await backend_client.health()
 
     assert status.status == 'ok'
+
+
+@pytest.mark.asyncio
+async def test_readiness_accepts_degraded_503_without_authorization() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == '/readyz'
+        assert 'Authorization' not in request.headers
+        return httpx.Response(
+            503,
+            json={
+                'status': 'degraded',
+                'generated_at': '2026-03-08T12:00:00Z',
+                'checks': {
+                    'hanime1': {
+                        'status': 'degraded',
+                        'code': 'parser_incompatible',
+                        'message': 'Hanime1 playlist structure is incompatible with the parser.',
+                        'sampled_targets': 3,
+                    },
+                },
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url='https://fav.example.com') as http_client:
+        backend_client = FavBackendClient(build_settings(), client=http_client)
+        status = await backend_client.readiness()
+
+    assert isinstance(status, ReadinessStatus)
+    assert status.status == 'degraded'
+    assert status.checks['hanime1'].code == 'parser_incompatible'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    'payload',
+    [
+        {'error': {'code': 'backend_unavailable'}},
+        {'status': 'ok', 'generated_at': '2026-03-08T12:00:00Z', 'checks': {}},
+    ],
+)
+async def test_readiness_rejects_invalid_503_payload(payload: dict[str, object]) -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json=payload)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url='https://fav.example.com') as http_client:
+        backend_client = FavBackendClient(build_settings(), client=http_client)
+        with pytest.raises(BackendApiUnexpectedResponseError):
+            await backend_client.readiness()
 
 
 @pytest.mark.asyncio

@@ -26,9 +26,11 @@ from nasuchan.clients import (
     AninamerStatusItem,
     AninamerStatusResponse,
     AninamerStatusSummary,
+    BackendApiTransportError,
     Hanime1Seed,
     JobRequest,
     JobSummary,
+    ReadinessStatus,
 )
 from nasuchan.config.settings import PollingSettings
 from nasuchan.services import BackendCommandService
@@ -78,6 +80,22 @@ class FakeFavBackendClient:
 
     async def list_jobs(self) -> list[JobSummary]:
         return self.jobs
+
+    async def readiness(self) -> ReadinessStatus:
+        return ReadinessStatus.model_validate(
+            {
+                'status': 'degraded',
+                'generated_at': '2026-03-08T12:00:00Z',
+                'checks': {
+                    'hanime1': {
+                        'status': 'degraded',
+                        'code': 'parser_incompatible',
+                        'message': 'Hanime1 playlist structure is incompatible with the parser.',
+                        'sampled_targets': 3,
+                    },
+                },
+            }
+        )
 
     async def create_job_request(self, _target: str) -> JobRequest:
         return self.requests[0]
@@ -239,11 +257,35 @@ async def test_status_handler_renders_runtime_status_sections() -> None:
     message.answer.assert_awaited_once()
     text = message.answer.await_args.args[0]
     assert 'FAV' in text
+    assert 'Readiness: degraded' in text
+    assert 'hanime1: degraded (parser_incompatible)' in text
     assert 'Configured jobs: 1' in text
     assert 'Running jobs: unavailable from current Fav API.' in text
     assert 'ANINAMER' in text
     assert 'Running items:' in text
     assert '#102 ShowB' in text
+
+
+@pytest.mark.asyncio
+async def test_status_handler_renders_both_fav_errors() -> None:
+    class FailingFavBackendClient:
+        async def list_jobs(self) -> list[JobSummary]:
+            raise BackendApiTransportError('jobs unavailable')
+
+        async def readiness(self) -> ReadinessStatus:
+            raise BackendApiTransportError('readiness unavailable')
+
+    message = build_message()
+
+    await handle_status(
+        message,
+        BackendCommandService(fav_client=FailingFavBackendClient()),
+        logger=SimpleNamespace(exception=lambda *args, **kwargs: None),
+    )
+
+    text = message.answer.await_args.args[0]
+    assert 'Jobs: error | Backend is currently unavailable.' in text
+    assert 'Readiness: error | Backend is currently unavailable.' in text
 
 
 @pytest.mark.asyncio

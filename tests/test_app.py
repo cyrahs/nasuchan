@@ -13,7 +13,7 @@ from aiogram.types import BotCommandScopeAllPrivateChats, BotCommandScopeChat, B
 import nasuchan.bot.delivery as delivery_module
 from nasuchan.bot.app import create_runtime, perform_startup_healthcheck, register_bot_commands
 from nasuchan.bot.delivery import send_markdown_to_chat
-from nasuchan.clients import BackendApiTransportError, HealthStatus
+from nasuchan.clients import BackendApiTransportError, ReadinessStatus
 from nasuchan.config.settings import AppConfig
 from nasuchan.services import BackendCommandService
 
@@ -85,7 +85,7 @@ async def test_create_runtime_can_skip_resource_management() -> None:
 @pytest.mark.asyncio
 async def test_startup_healthcheck_is_non_fatal_when_backend_is_unavailable() -> None:
     class FailingBackendClient:
-        async def health(self) -> HealthStatus:
+        async def readiness(self) -> ReadinessStatus:
             raise BackendApiTransportError('boom')
 
     logger = SimpleNamespace(info=Mock(), warning=Mock())
@@ -100,10 +100,10 @@ async def test_startup_healthcheck_is_non_fatal_when_backend_is_unavailable() ->
 
 @pytest.mark.asyncio
 async def test_startup_healthcheck_logs_success() -> None:
-    status = HealthStatus(status='ok', generated_at='2026-03-08T12:00:00Z')
+    status = ReadinessStatus(status='ok', generated_at='2026-03-08T12:00:00Z', checks={})
 
     class HealthyBackendClient:
-        async def health(self) -> HealthStatus:
+        async def readiness(self) -> ReadinessStatus:
             return status
 
     logger = SimpleNamespace(info=Mock(), warning=Mock())
@@ -114,6 +114,33 @@ async def test_startup_healthcheck_logs_success() -> None:
     )
 
     logger.info.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_startup_healthcheck_logs_warning_for_degraded_readiness() -> None:
+    status = ReadinessStatus(
+        status='degraded',
+        generated_at='2026-03-08T12:00:00Z',
+        checks={
+            'hanime1': {
+                'status': 'degraded',
+                'code': 'parser_incompatible',
+                'message': 'bad structure',
+                'sampled_targets': 3,
+            },
+        },
+    )
+
+    class DegradedBackendClient:
+        async def readiness(self) -> ReadinessStatus:
+            return status
+
+    logger = SimpleNamespace(info=Mock(), warning=Mock())
+
+    await perform_startup_healthcheck(BackendCommandService(fav_client=DegradedBackendClient()), logger=logger)
+
+    logger.warning.assert_called_once()
+    logger.info.assert_not_called()
 
 
 @pytest.mark.asyncio
