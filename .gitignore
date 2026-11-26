@@ -47,3 +47,16 @@ pip-wheel-metadata/
 .DS_Store
 .idea/
 .vscode/
+
+# Local credentials: this repository is public, never commit env or key files
+.env
+.env.*
+*.env
+.envrc
+!.env.example
+!.env.sample
+!.env.template
+*.pem
+*.key
+*.p12
+*.pfx
